@@ -145,7 +145,7 @@
         '}',
         '[data-wdr] .tm-btn-primary:active,',
         '.tm-floating-panel .tm-btn-primary:active {',
-        '  background-color: #539fd9;',
+        '  background-color: #3ea6ff;',
         '}',
         '[data-wdr] .tm-btn-primary:disabled,',
         '.tm-floating-panel .tm-btn-primary:disabled {',

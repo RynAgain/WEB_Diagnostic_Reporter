@@ -488,7 +488,7 @@
         updateBtn.textContent = 'Update Now';
         updateBtn.style.cssText = [
             'background: #3ea6ff',
-            'color: #000000',
+            'color: #0f0f0f',
             'border: none',
             'border-radius: 6px',
             'padding: 8px 16px',
@@ -713,7 +713,7 @@
             'bottom: 24px',
             'right: 24px',
             'background: #1a1a1a',
-            'border: 1px solid #c62828',
+            'border: 1px solid #d32f2f',
             'border-radius: 8px',
             'color: #f1f1f1',
             'padding: 12px 20px',

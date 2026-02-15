@@ -359,11 +359,12 @@ See [Network Request Recorder Design](#network-request-recorder-design) for full
 |-------|--------|------|
 | `wdr:network:ready` | `{ version: string }` | After XHR/fetch patches installed |
 | `wdr:network:request-start` | `{ id, url, method, timestamp }` | When a request begins |
-| `wdr:network:request-complete` | `{ id, url, method, status, duration, size }` | When a request finishes |
+| `wdr:network:request-complete` | `{ entry, id, url, method, status, duration, size }` | When a request finishes |
 | `wdr:network:request-error` | `{ id, url, method, error }` | When a request fails |
 | `wdr:network:recording-started` | `{}` | Recording enabled |
 | `wdr:network:recording-stopped` | `{}` | Recording paused |
-| `wdr:network:records-cleared` | `{}` | Records wiped |
+| `wdr:network:records-cleared` | `{ previousCount }` | Records wiped |
+| `wdr:network:count-updated` | `{ count }` | Entry count changed (after add or clear) |
 | `wdr:network:export-ready` | `{ format, blob }` | Export file generated |
 
 **CustomEvents listened to:**
@@ -523,35 +524,58 @@ See [Toolbar UI Design](#toolbar-ui-design) for full details.
 
 The network recorder must capture requests that originate **before** the page's own scripts execute. Since the userscript runs at `document-start`, the monkey-patching happens before the page loads.
 
-#### 1. XMLHttpRequest Proxy
+**Critical design decision:** We use **prototype patching** rather than constructor replacement for XHR interception. This follows the proven pattern from [Network Token Scanning Performance](Network%20Token%20Scanning%20Performance.md). Prototype patching is more reliable because:
+- It works even when page scripts cache `XMLHttpRequest` before the patch
+- It avoids Tampermonkey sandbox boundary issues with constructor assignment
+- It doesn't break `instanceof` checks
+- It modifies the existing prototype so all current and future instances are affected
 
-Wrap the native `XMLHttpRequest` on `unsafeWindow` with a proxy:
+#### 1. XMLHttpRequest Prototype Patching
 
+Patch three methods on `unsafeWindow.XMLHttpRequest.prototype`:
+
+```javascript
+// Store originals
+var _origOpen = targetWindow.XMLHttpRequest.prototype.open;
+var _origSetRequestHeader = targetWindow.XMLHttpRequest.prototype.setRequestHeader;
+var _origSend = targetWindow.XMLHttpRequest.prototype.send;
+
+// Patch open() — capture method and URL, attach per-instance _wdr tracker
+targetWindow.XMLHttpRequest.prototype.open = function (method, url, async, user, password) {
+    this._wdr = { id, method, url, async, requestHeaders: {}, requestBody: null, startTime: 0, listenerAttached: false };
+    return _origOpen.apply(this, arguments);
+};
+
+// Patch setRequestHeader() — capture each header as it is set
+targetWindow.XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+    if (this._wdr) { this._wdr.requestHeaders[name] = value; }
+    return _origSetRequestHeader.apply(this, arguments);
+};
+
+// Patch send() — capture body, start timing, attach loadend listener
+targetWindow.XMLHttpRequest.prototype.send = function (body) {
+    if (this._wdr && !this._wdr.listenerAttached) {
+        this._wdr.requestBody = truncateBody(body);
+        this._wdr.startTime = performance.now();
+        this._wdr.listenerAttached = true;
+        this.addEventListener('loadend', function () { /* capture response details */ });
+    }
+    return _origSend.apply(this, arguments);
+};
 ```
-unsafeWindow.XMLHttpRequest = ProxiedXHR
-```
 
-The `ProxiedXHR` class:
-- Extends or wraps the original `XMLHttpRequest` prototype
-- Intercepts `open()` to capture method and URL
-- Intercepts `setRequestHeader()` to capture request headers
-- Intercepts `send()` to capture request body and start timing
-- Listens to `load`, `error`, `abort`, `timeout` events to capture:
-  - Response status and status text
-  - Response headers via `getAllResponseHeaders()`
-  - Response body size via `response.byteLength` or `responseText.length`
-  - Timing via `performance.now()` deltas
+Per-instance state is stored on a `_wdr` property attached during `open()`. The `loadend` event fires for all terminal states (load, error, abort, timeout).
 
 #### 2. Fetch Proxy
 
-Wrap `unsafeWindow.fetch` with a wrapper function:
+Fetch is a standalone function (not a constructor with a prototype), so the wrapper approach is the correct pattern:
 
 ```
 unsafeWindow.fetch = wrappedFetch
 ```
 
 The wrapper:
-- Clones the `Request` object to extract method, URL, headers, body
+- Extracts method, URL, headers, body from both `fetch(url, init)` and `fetch(Request)` signatures
 - Calls the original `fetch` and wraps the returned `Promise`
 - On resolve: reads `Response` status, headers, `Content-Length`; clones the response to read body size without consuming the stream
 - On reject: captures the error
@@ -574,34 +598,58 @@ perfObserver.observe({ type: 'resource', buffered: true });
 
 The `buffered: true` option captures resources that loaded before the observer was created.
 
+Resource entries with `initiatorType` of `'xmlhttprequest'` or `'fetch'` are used to **enrich** existing XHR/fetch entries with `transferSize` data rather than creating duplicates. All other resource types are added as `type: 'resource'` entries directly to the main entries array.
+
 #### 4. Navigation Timing
 
-Capture the page navigation itself via `performance.getEntriesByType('navigation')` to record the initial document request.
+Capture the page navigation itself via `performance.getEntriesByType('navigation')` to record the initial document request. Deferred until `window.load` event with a small delay to ensure the navigation entry is finalized.
+
+#### 5. navigator.sendBeacon Proxy
+
+`navigator.sendBeacon` is commonly used by analytics libraries for fire-and-forget data submissions. It's patched using prototype patching on `Navigator.prototype.sendBeacon` (same reliable approach as XHR):
+
+```javascript
+var _origSendBeacon = Navigator.prototype.sendBeacon;
+Navigator.prototype.sendBeacon = function (url, data) {
+    // Capture as a 'beacon' type entry with method POST
+    // sendBeacon is fire-and-forget: no response is available
+    _addEntry({ type: 'beacon', method: 'POST', url, ... });
+    return _origSendBeacon.apply(this, arguments);
+};
+```
+
+Since `sendBeacon` returns only a boolean and provides no response data, these entries have `status: 0` and no response headers/size.
+
+#### 6. Re-patch Detection
+
+A `setInterval` (every 5 seconds) checks whether `XMLHttpRequest.prototype.open`, `fetch`, or `Navigator.prototype.sendBeacon` have been overwritten by page scripts. If so, the recorder re-applies its patches by chaining through whatever was installed, preserving both the page's overrides and WDR's interception.
 
 ### Internal Data Model — `NetworkEntry`
 
 ```typescript
 interface NetworkEntry {
-    id: string;                    // Unique ID: wdr-net-{timestamp}-{counter}
-    type: 'xhr' | 'fetch' | 'resource' | 'navigation';
+    id: string;                    // Unique ID: wdr_{timestamp}_{counter}_{random}
+    type: 'xhr' | 'fetch' | 'resource' | 'navigation' | 'beacon';
     url: string;
     method: string;                // GET, POST, etc. - 'GET' default for resources
-    requestHeaders: Header[];      // [{name, value}] - XHR/fetch only
+    requestHeaders: object;        // { headerName: value } - XHR/fetch only
     requestBody: string | null;    // XHR/fetch only, truncated at 10KB
     status: number;
     statusText: string;
-    responseHeaders: Header[];
-    responseSize: number;          // Bytes
-    transferSize: number;          // From PerformanceEntry if available
+    responseHeaders: object;       // { headerName: value }
+    responseSize: number;          // Bytes (decodedBodySize for resources)
+    transferSize: number;          // From PerformanceEntry if available, 0 otherwise
     mimeType: string;
     startTime: number;             // performance.now() or PerformanceEntry.startTime
     endTime: number;
     duration: number;              // endTime - startTime in ms
-    initiatorType: string;         // 'xmlhttprequest' | 'fetch' | 'img' | 'script' | etc.
+    initiatorType: string;         // 'xmlhttprequest' | 'fetch' | 'img' | 'script' | 'navigation' | etc.
     error: string | null;          // Error message if failed
     timestamp: string;             // ISO 8601 wall-clock time
 }
 ```
+
+> **Note:** Headers are stored as plain objects (`{ name: value }`) rather than arrays of `{name, value}` pairs. The HAR export converts these to the array format required by the HAR 1.2 spec.
 
 ### HAR 1.2 Export Format
 
@@ -1051,7 +1099,8 @@ All inter-module communication uses `CustomEvent` dispatched on `document`. Even
 | `wdr:network:request-error` | network-recorder.js | `{ id: string, url: string, method: string, error: string }` | toolbar |
 | `wdr:network:recording-started` | network-recorder.js | `{}` | toolbar |
 | `wdr:network:recording-stopped` | network-recorder.js | `{}` | toolbar |
-| `wdr:network:records-cleared` | network-recorder.js | `{}` | toolbar |
+| `wdr:network:records-cleared` | network-recorder.js | `{ previousCount: number }` | toolbar |
+| `wdr:network:count-updated` | network-recorder.js | `{ count: number }` | toolbar |
 | `wdr:network:export-ready` | network-recorder.js | `{ format: 'json' or 'har', blob: Blob }` | toolbar |
 
 #### Style Analyzer Events
@@ -1258,7 +1307,7 @@ if (document.documentElement.getAttribute('data-wdr-network-ready') === 'true') 
 
 ### Problem: Page overrides XMLHttpRequest or fetch after our patch
 
-**Solution:** The network recorder stores a reference to its patched constructor/function. If it detects that `unsafeWindow.XMLHttpRequest` or `unsafeWindow.fetch` has been replaced (checked periodically via `setInterval`), it re-applies the patch, chaining through whatever the page installed.
+**Solution:** The network recorder stores references to its patched prototype methods and fetch function. A `setInterval` (every 5 seconds) checks whether `XMLHttpRequest.prototype.open` or `fetch` have been reassigned. If so, the recorder re-applies its patches by chaining through whatever the page installed, preserving both the page's overrides and WDR's interception.
 
 ---
 

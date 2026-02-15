@@ -21,7 +21,8 @@
 - [x] Request filtering (by type, status, domain)
 - [x] Live request count display
 - [x] Request detail viewer panel
-- [ ] review netwokr request capture documentation
+- [x] Review network request capture documentation
+- [x] navigator.sendBeacon interception and recording
 
 ## Style and Design Analyzer
 
@@ -31,7 +32,8 @@
 - [x] Layout pattern detection (flexbox, grid, float usage)
 - [x] Spacing consistency analysis
 - [x] Accessibility contrast ratio checking
-- [x] CSS specificity analysis
+- [x] CSS overview analysis (stylesheet counts, rule counts, selectors, media queries)
+- [ ] CSS specificity scoring (per-selector specificity calculation)
 - [ ] Unused style detection
 - [x] Design consistency scoring
 - [x] Full report export (JSON)
@@ -68,7 +70,7 @@
 - [x] Module export guards for unit testing
 - [x] Console logging with [ModuleName] prefix format
 - [x] Duplicate element prevention (ID checks)
-- [x] MutationObserver cleanup on disconnect
+- [ ] MutationObserver cleanup on disconnect
 - [x] Event listener cleanup functions
 
 ## Documentation
@@ -78,3 +80,6 @@
 - [x] Anti-AI Style Guide compliance
 - [x] Multi-file module guide compliance
 - [x] Update system documentation compliance
+
+## tool that can Retest/edit Network requests and View responses
+- [ ] expand this section.

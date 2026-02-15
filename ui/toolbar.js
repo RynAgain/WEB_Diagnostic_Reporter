@@ -365,7 +365,7 @@
         });
         _on('wdr:network:recording-started', function () { _updRec(true); });
         _on('wdr:network:recording-stopped', function () { _updRec(false); });
-        _on('wdr:network:cleared', function () { _clearNetList(); });
+        _on('wdr:network:records-cleared', function () { _clearNetList(); });
 
         // Export events
         _on('wdr:network:export-ready', function (e) {

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WEB Diagnostic Reporter
 // @namespace    https://github.com/Rynagain/WEB_Diagnostic_Reporter
-// @version      1.0.0
+// @version      1.0.1
 // @description  A comprehensive web diagnostic tool for recording network requests, analyzing styles, and exporting detailed reports
 // @author       Rynagain
 // @match        *://*/*
@@ -35,7 +35,7 @@
     // and CURRENT_VERSION in modules/updater.js
     // -----------------------------------------------------------------------
 
-    var VERSION = '1.0.0';
+    var VERSION = '1.0.1';
 
     // -----------------------------------------------------------------------
     // Helper functions (inline, since utils may not be loaded yet)

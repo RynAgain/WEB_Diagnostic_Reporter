@@ -1,5 +1,6 @@
 // modules/network-recorder.js -- WEB Diagnostic Reporter
 // Load order: 5 -- XHR/fetch/resource interception, runs at document-start
+// Uses prototype patching (NOT constructor replacement) per Network Token Scanning Performance guide.
 (function () {
     'use strict';
 
@@ -73,11 +74,11 @@
 
     var _recording = true;
     var _entries = [];
-    var _resourceEntries = [];
     var _idCounter = 0;
     var MAX_ENTRIES = 5000;
     var BODY_TRUNCATE_LIMIT = 10240; // 10KB
     var FILTERED_DOMAINS = ['raw.githubusercontent.com'];
+    var _patchCheckInterval = null;
 
     // -----------------------------------------------------------------------
     // ID generation (inline fallback — utils may not be loaded yet)
@@ -155,7 +156,15 @@
         }
         _entries.push(entry);
 
-        _dispatch('wdr:network:request-complete', { entry: entry });
+        _dispatch('wdr:network:request-complete', {
+            entry: entry,
+            id: entry.id,
+            url: entry.url,
+            method: entry.method,
+            status: entry.status,
+            duration: entry.duration,
+            size: entry.responseSize
+        });
         _dispatch('wdr:network:count-updated', { count: _entries.length });
     }
 
@@ -181,114 +190,104 @@
     }
 
     // -----------------------------------------------------------------------
-    // 1. XMLHttpRequest Proxy
+    // 1. XMLHttpRequest Interception — PROTOTYPE PATCHING
+    //
+    // This follows the proven pattern from docs/Network Token Scanning
+    // Performance.md. We patch open(), setRequestHeader(), and send() on the
+    // prototype rather than replacing the constructor. This is more reliable
+    // because:
+    //   - Works even when page scripts cache XMLHttpRequest before the patch
+    //   - No Tampermonkey sandbox boundary issues
+    //   - No instanceof breakage
+    //   - Modifies existing prototype; all current and future instances affected
     // -----------------------------------------------------------------------
 
-    var OriginalXHR = targetWindow.XMLHttpRequest;
+    var _origOpen = targetWindow.XMLHttpRequest.prototype.open;
+    var _origSetRequestHeader = targetWindow.XMLHttpRequest.prototype.setRequestHeader;
+    var _origSend = targetWindow.XMLHttpRequest.prototype.send;
 
-    function WDRXMLHttpRequest() {
-        var realXHR = new OriginalXHR();
+    /**
+     * Patch open() — capture method and URL for this request instance.
+     * Stores tracking state on the XHR instance via a _wdr property.
+     */
+    targetWindow.XMLHttpRequest.prototype.open = function (method, url, async, user, password) {
+        // Attach per-instance tracking object
+        this._wdr = {
+            id: _generateId(),
+            method: (method || 'GET').toUpperCase(),
+            url: String(url),
+            async: (async !== undefined) ? async : true,
+            requestHeaders: {},
+            requestBody: null,
+            startTime: 0,
+            listenerAttached: false
+        };
+
+        return _origOpen.apply(this, arguments);
+    };
+
+    /**
+     * Patch setRequestHeader() — capture each header as it is set.
+     */
+    targetWindow.XMLHttpRequest.prototype.setRequestHeader = function (name, value) {
+        if (this._wdr) {
+            this._wdr.requestHeaders[name] = value;
+        }
+
+        return _origSetRequestHeader.apply(this, arguments);
+    };
+
+    /**
+     * Patch send() — capture request body, start timing, and attach response
+     * listeners. The loadend listener fires for all terminal states (load,
+     * error, abort, timeout).
+     */
+    targetWindow.XMLHttpRequest.prototype.send = function (body) {
         var self = this;
 
-        // Internal tracking for this request
-        var _method = '';
-        var _url = '';
-        var _async = true;
-        var _startTime = 0;
-        var _requestHeaders = {};
-        var _requestBody = null;
-        var _id = _generateId();
+        if (this._wdr && !this._wdr.listenerAttached) {
+            this._wdr.requestBody = _truncateBody(body);
+            this._wdr.startTime = _now();
+            this._wdr.listenerAttached = true;
 
-        // Copy all properties and methods from the real XHR to this wrapper.
-        // We need to proxy event handlers and standard properties.
-        var xhrProps = [
-            'readyState', 'response', 'responseText', 'responseType',
-            'responseURL', 'responseXML', 'status', 'statusText', 'timeout',
-            'withCredentials', 'upload'
-        ];
-
-        // Define getters for read-only properties
-        for (var i = 0; i < xhrProps.length; i++) {
-            (function (prop) {
-                Object.defineProperty(self, prop, {
-                    get: function () {
-                        return realXHR[prop];
-                    },
-                    set: function (val) {
-                        try {
-                            realXHR[prop] = val;
-                        } catch (e) {
-                            // Some properties are read-only
-                        }
-                    },
-                    configurable: true
+            // Dispatch request-start event
+            if (!_shouldFilter(this._wdr.url)) {
+                _dispatch('wdr:network:request-start', {
+                    id: this._wdr.id,
+                    url: this._wdr.url,
+                    method: this._wdr.method,
+                    timestamp: new Date().toISOString()
                 });
-            })(xhrProps[i]);
-        }
+            }
 
-        // Proxy event handler properties
-        var eventHandlerNames = [
-            'onreadystatechange', 'onabort', 'onerror', 'onload',
-            'onloadend', 'onloadstart', 'onprogress', 'ontimeout'
-        ];
-
-        for (var j = 0; j < eventHandlerNames.length; j++) {
-            (function (handlerName) {
-                Object.defineProperty(self, handlerName, {
-                    get: function () {
-                        return realXHR[handlerName];
-                    },
-                    set: function (fn) {
-                        realXHR[handlerName] = fn;
-                    },
-                    configurable: true
-                });
-            })(eventHandlerNames[j]);
-        }
-
-        // ---- open() ----
-        self.open = function (method, url, async, user, password) {
-            _method = (method || 'GET').toUpperCase();
-            _url = String(url);
-            _async = (async !== undefined) ? async : true;
-            return realXHR.open.apply(realXHR, arguments);
-        };
-
-        // ---- setRequestHeader() ----
-        self.setRequestHeader = function (name, value) {
-            _requestHeaders[name] = value;
-            return realXHR.setRequestHeader.apply(realXHR, arguments);
-        };
-
-        // ---- send() ----
-        self.send = function (body) {
-            _requestBody = _truncateBody(body);
-            _startTime = _now();
-
-            // Listen for loadend to capture response details
-            realXHR.addEventListener('loadend', function () {
-                if (_shouldFilter(_url)) {
+            // loadend fires after load, error, abort, or timeout
+            this.addEventListener('loadend', function () {
+                if (!self._wdr) {
+                    return;
+                }
+                if (_shouldFilter(self._wdr.url)) {
                     return;
                 }
 
+                var wdr = self._wdr;
                 var endTime = _now();
-                var duration = endTime - _startTime;
+                var duration = endTime - wdr.startTime;
 
-                var responseHeaders = _parseHeaders(realXHR.getAllResponseHeaders());
+                var responseHeaders = _parseHeaders(self.getAllResponseHeaders());
                 var responseSize = 0;
 
                 // Determine response size
                 var contentLength = responseHeaders['content-length'];
                 if (contentLength) {
                     responseSize = parseInt(contentLength, 10) || 0;
-                } else if (realXHR.response) {
-                    if (typeof realXHR.response === 'string') {
-                        responseSize = realXHR.response.length;
-                    } else if (realXHR.response.byteLength !== undefined) {
-                        responseSize = realXHR.response.byteLength;
+                } else if (self.response) {
+                    if (typeof self.response === 'string') {
+                        responseSize = self.response.length;
+                    } else if (self.response.byteLength !== undefined) {
+                        responseSize = self.response.byteLength;
                     }
-                } else if (realXHR.responseText) {
-                    responseSize = realXHR.responseText.length;
+                } else if (self.responseText) {
+                    responseSize = self.responseText.length;
                 }
 
                 var mimeType = responseHeaders['content-type'] || '';
@@ -297,108 +296,60 @@
                 }
 
                 var errorMsg = null;
-                if (realXHR.status === 0) {
+                if (self.status === 0) {
                     errorMsg = 'Request failed or aborted (status 0)';
                 }
 
                 var entry = {
-                    id: _id,
+                    id: wdr.id,
                     type: 'xhr',
-                    method: _method,
-                    url: _url,
-                    startTime: _startTime,
+                    method: wdr.method,
+                    url: wdr.url,
+                    startTime: wdr.startTime,
                     endTime: endTime,
                     duration: duration,
-                    status: realXHR.status,
-                    statusText: realXHR.statusText || '',
-                    requestHeaders: _requestHeaders,
+                    status: self.status,
+                    statusText: self.statusText || '',
+                    requestHeaders: wdr.requestHeaders,
                     responseHeaders: responseHeaders,
-                    requestBody: _requestBody,
+                    requestBody: wdr.requestBody,
                     responseSize: responseSize,
+                    transferSize: 0,
                     mimeType: mimeType,
+                    initiatorType: 'xmlhttprequest',
                     error: errorMsg,
                     timestamp: new Date().toISOString()
                 };
 
+                if (errorMsg) {
+                    _dispatch('wdr:network:request-error', {
+                        id: wdr.id,
+                        url: wdr.url,
+                        method: wdr.method,
+                        error: errorMsg
+                    });
+                }
+
                 _addEntry(entry);
             });
+        }
 
-            // Also listen for error/abort/timeout to capture failures
-            realXHR.addEventListener('error', function () {
-                if (_shouldFilter(_url)) {
-                    return;
-                }
-                // loadend will also fire; the error info is already captured there
-            });
+        return _origSend.apply(this, arguments);
+    };
 
-            realXHR.addEventListener('abort', function () {
-                if (_shouldFilter(_url)) {
-                    return;
-                }
-            });
-
-            realXHR.addEventListener('timeout', function () {
-                if (_shouldFilter(_url)) {
-                    return;
-                }
-            });
-
-            return realXHR.send.apply(realXHR, arguments);
-        };
-
-        // ---- abort() ----
-        self.abort = function () {
-            return realXHR.abort.apply(realXHR, arguments);
-        };
-
-        // ---- getResponseHeader() ----
-        self.getResponseHeader = function (name) {
-            return realXHR.getResponseHeader.apply(realXHR, arguments);
-        };
-
-        // ---- getAllResponseHeaders() ----
-        self.getAllResponseHeaders = function () {
-            return realXHR.getAllResponseHeaders.apply(realXHR, arguments);
-        };
-
-        // ---- overrideMimeType() ----
-        self.overrideMimeType = function (mime) {
-            return realXHR.overrideMimeType.apply(realXHR, arguments);
-        };
-
-        // ---- addEventListener / removeEventListener / dispatchEvent ----
-        self.addEventListener = function () {
-            return realXHR.addEventListener.apply(realXHR, arguments);
-        };
-
-        self.removeEventListener = function () {
-            return realXHR.removeEventListener.apply(realXHR, arguments);
-        };
-
-        self.dispatchEvent = function () {
-            return realXHR.dispatchEvent.apply(realXHR, arguments);
-        };
-    }
-
-    // Preserve the prototype chain and static properties
-    WDRXMLHttpRequest.prototype = OriginalXHR.prototype;
-    WDRXMLHttpRequest.UNSENT = 0;
-    WDRXMLHttpRequest.OPENED = 1;
-    WDRXMLHttpRequest.HEADERS_RECEIVED = 2;
-    WDRXMLHttpRequest.LOADING = 3;
-    WDRXMLHttpRequest.DONE = 4;
-
-    // Install the XHR proxy
-    targetWindow.XMLHttpRequest = WDRXMLHttpRequest;
-    _log('XMLHttpRequest proxy installed.');
+    _log('XMLHttpRequest prototype patched (open, setRequestHeader, send).');
 
     // -----------------------------------------------------------------------
     // 2. Fetch API Proxy
+    //
+    // Fetch is a standalone function, not a constructor with a prototype, so
+    // the wrapper approach is the correct pattern here. We store the original
+    // and replace targetWindow.fetch with our wrapper.
     // -----------------------------------------------------------------------
 
-    var OriginalFetch = targetWindow.fetch;
+    var _origFetch = targetWindow.fetch;
 
-    if (typeof OriginalFetch === 'function') {
+    if (typeof _origFetch === 'function') {
         targetWindow.fetch = function wdrFetchProxy(input, init) {
             var fetchUrl = '';
             var fetchMethod = 'GET';
@@ -455,16 +406,24 @@
 
             // Check filter before proceeding
             if (_shouldFilter(fetchUrl)) {
-                return OriginalFetch.apply(targetWindow, arguments);
+                return _origFetch.apply(targetWindow, arguments);
             }
 
             var id = _generateId();
             var startTime = _now();
 
+            // Dispatch request-start
+            _dispatch('wdr:network:request-start', {
+                id: id,
+                url: fetchUrl,
+                method: fetchMethod,
+                timestamp: new Date().toISOString()
+            });
+
             // Call original fetch
             var fetchPromise;
             try {
-                fetchPromise = OriginalFetch.apply(targetWindow, arguments);
+                fetchPromise = _origFetch.apply(targetWindow, arguments);
             } catch (e) {
                 // Synchronous throw from fetch (e.g. invalid arguments)
                 var errorEntry = {
@@ -481,10 +440,18 @@
                     responseHeaders: {},
                     requestBody: fetchBody,
                     responseSize: 0,
+                    transferSize: 0,
                     mimeType: '',
+                    initiatorType: 'fetch',
                     error: e.message || String(e),
                     timestamp: new Date().toISOString()
                 };
+                _dispatch('wdr:network:request-error', {
+                    id: id,
+                    url: fetchUrl,
+                    method: fetchMethod,
+                    error: e.message || String(e)
+                });
                 _addEntry(errorEntry);
                 throw e;
             }
@@ -551,7 +518,9 @@
                     responseHeaders: responseHeaders,
                     requestBody: fetchBody,
                     responseSize: responseSize,
+                    transferSize: 0,
                     mimeType: mimeType,
+                    initiatorType: 'fetch',
                     error: null,
                     timestamp: new Date().toISOString()
                 };
@@ -577,11 +546,19 @@
                     responseHeaders: {},
                     requestBody: fetchBody,
                     responseSize: 0,
+                    transferSize: 0,
                     mimeType: '',
+                    initiatorType: 'fetch',
                     error: err.message || String(err),
                     timestamp: new Date().toISOString()
                 };
 
+                _dispatch('wdr:network:request-error', {
+                    id: id,
+                    url: fetchUrl,
+                    method: fetchMethod,
+                    error: err.message || String(err)
+                });
                 _addEntry(entry);
 
                 throw err;
@@ -595,6 +572,10 @@
 
     // -----------------------------------------------------------------------
     // 3. PerformanceObserver (resource timing)
+    //
+    // Captures resources not initiated by JavaScript — images, stylesheets,
+    // scripts, fonts — and adds them directly to the main _entries array so
+    // they appear in exports.
     // -----------------------------------------------------------------------
 
     if (typeof PerformanceObserver !== 'undefined') {
@@ -609,18 +590,36 @@
                         continue;
                     }
 
-                    var resourceRecord = {
-                        name: pe.name,
-                        initiatorType: pe.initiatorType || '',
+                    // Skip entries that were already captured by XHR/fetch proxies.
+                    // XHR initiatorType is 'xmlhttprequest', fetch is 'fetch'.
+                    if (pe.initiatorType === 'xmlhttprequest' || pe.initiatorType === 'fetch') {
+                        // Enrich existing entry with PerformanceEntry timing data
+                        _enrichEntry(pe);
+                        continue;
+                    }
+
+                    var resourceEntry = {
+                        id: _generateId(),
+                        type: 'resource',
+                        method: 'GET',
+                        url: pe.name,
                         startTime: pe.startTime,
+                        endTime: pe.responseEnd || (pe.startTime + pe.duration),
                         duration: pe.duration,
+                        status: 0,
+                        statusText: '',
+                        requestHeaders: {},
+                        responseHeaders: {},
+                        requestBody: null,
+                        responseSize: pe.decodedBodySize || 0,
                         transferSize: pe.transferSize || 0,
-                        encodedBodySize: pe.encodedBodySize || 0,
-                        decodedBodySize: pe.decodedBodySize || 0,
-                        protocol: pe.nextHopProtocol || ''
+                        mimeType: '',
+                        initiatorType: pe.initiatorType || '',
+                        error: null,
+                        timestamp: new Date(performance.timeOrigin + pe.startTime).toISOString()
                     };
 
-                    _resourceEntries.push(resourceRecord);
+                    _addEntry(resourceEntry);
                 }
             });
 
@@ -632,6 +631,271 @@
     } else {
         _warn('PerformanceObserver not available.');
     }
+
+    // -----------------------------------------------------------------------
+    // 4. Navigation Timing
+    //
+    // Capture the initial page navigation as a 'navigation' type entry.
+    // Deferred slightly to ensure the navigation entry is available.
+    // -----------------------------------------------------------------------
+
+    function _captureNavigationTiming() {
+        try {
+            var navEntries = performance.getEntriesByType('navigation');
+            if (navEntries && navEntries.length > 0) {
+                var nav = navEntries[0];
+                var navEntry = {
+                    id: _generateId(),
+                    type: 'navigation',
+                    method: 'GET',
+                    url: nav.name || window.location.href,
+                    startTime: nav.startTime,
+                    endTime: nav.responseEnd || nav.duration,
+                    duration: nav.duration,
+                    status: 0,
+                    statusText: '',
+                    requestHeaders: {},
+                    responseHeaders: {},
+                    requestBody: null,
+                    responseSize: nav.decodedBodySize || 0,
+                    transferSize: nav.transferSize || 0,
+                    mimeType: 'text/html',
+                    initiatorType: 'navigation',
+                    error: null,
+                    timestamp: new Date(performance.timeOrigin + nav.startTime).toISOString()
+                };
+                _addEntry(navEntry);
+                _log('Navigation timing captured.');
+            }
+        } catch (e) {
+            _warn('Navigation timing capture failed: ' + (e.message || String(e)));
+        }
+    }
+
+    // Defer navigation capture until the page has loaded enough for the entry to exist
+    if (document.readyState === 'complete') {
+        _captureNavigationTiming();
+    } else {
+        targetWindow.addEventListener('load', function () {
+            // Small delay to ensure the PerformanceNavigationTiming entry is finalized
+            setTimeout(_captureNavigationTiming, 100);
+        });
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. navigator.sendBeacon Interception
+    //
+    // sendBeacon is commonly used by analytics libraries. We patch
+    // Navigator.prototype.sendBeacon using prototype patching (same
+    // reliable approach as XHR) to capture these fire-and-forget requests.
+    // -----------------------------------------------------------------------
+
+    if (typeof Navigator !== 'undefined' && Navigator.prototype && typeof Navigator.prototype.sendBeacon === 'function') {
+        var _origSendBeacon = Navigator.prototype.sendBeacon;
+
+        Navigator.prototype.sendBeacon = function (url, data) {
+            if (!_shouldFilter(String(url))) {
+                var beaconId = _generateId();
+                var beaconBody = null;
+                var beaconSize = 0;
+
+                if (data !== undefined && data !== null) {
+                    beaconBody = _truncateBody(data);
+                    try {
+                        if (typeof data === 'string') {
+                            beaconSize = data.length;
+                        } else if (data instanceof Blob) {
+                            beaconSize = data.size;
+                        } else if (data instanceof ArrayBuffer) {
+                            beaconSize = data.byteLength;
+                        } else if (data instanceof FormData) {
+                            // FormData size is not directly measurable
+                            beaconSize = 0;
+                        }
+                    } catch (e) {
+                        beaconSize = 0;
+                    }
+                }
+
+                var beaconEntry = {
+                    id: beaconId,
+                    type: 'beacon',
+                    method: 'POST',
+                    url: String(url),
+                    startTime: _now(),
+                    endTime: _now(),
+                    duration: 0,
+                    status: 0,
+                    statusText: '',
+                    requestHeaders: {},
+                    responseHeaders: {},
+                    requestBody: beaconBody,
+                    responseSize: 0,
+                    transferSize: 0,
+                    mimeType: '',
+                    initiatorType: 'beacon',
+                    error: null,
+                    timestamp: new Date().toISOString()
+                };
+
+                _dispatch('wdr:network:request-start', {
+                    id: beaconId,
+                    url: String(url),
+                    method: 'POST',
+                    timestamp: beaconEntry.timestamp
+                });
+
+                _addEntry(beaconEntry);
+            }
+
+            return _origSendBeacon.apply(this, arguments);
+        };
+
+        _log('navigator.sendBeacon prototype patched.');
+    } else {
+        _warn('navigator.sendBeacon not available — proxy not installed.');
+    }
+
+    // -----------------------------------------------------------------------
+    // Enrich XHR/fetch entries with PerformanceEntry timing data
+    // -----------------------------------------------------------------------
+
+    function _enrichEntry(perfEntry) {
+        for (var i = _entries.length - 1; i >= 0; i--) {
+            var entry = _entries[i];
+            // Match by URL — PerformanceEntry.name is the full URL
+            if (entry.url === perfEntry.name && !entry._enriched) {
+                entry.transferSize = perfEntry.transferSize || entry.transferSize || 0;
+                if (perfEntry.decodedBodySize && !entry.responseSize) {
+                    entry.responseSize = perfEntry.decodedBodySize;
+                }
+                entry._enriched = true;
+                break;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. Re-patch detection
+    //
+    // Periodically check if another script has overwritten our patches.
+    // If so, re-apply them by chaining through whatever was installed.
+    // Covers XHR prototype, fetch, and sendBeacon.
+    // -----------------------------------------------------------------------
+
+    function _checkPatches() {
+        // Check XHR prototype.open
+        if (targetWindow.XMLHttpRequest.prototype.open !== _patchedOpen) {
+            _warn('XHR.open was overwritten, re-patching...');
+            var overriddenOpen = targetWindow.XMLHttpRequest.prototype.open;
+            targetWindow.XMLHttpRequest.prototype.open = function (method, url, async, user, password) {
+                this._wdr = {
+                    id: _generateId(),
+                    method: (method || 'GET').toUpperCase(),
+                    url: String(url),
+                    async: (async !== undefined) ? async : true,
+                    requestHeaders: {},
+                    requestBody: null,
+                    startTime: 0,
+                    listenerAttached: false
+                };
+                return overriddenOpen.apply(this, arguments);
+            };
+            _patchedOpen = targetWindow.XMLHttpRequest.prototype.open;
+        }
+
+        // Check fetch — chain through the page's override so its logic is preserved
+        if (typeof targetWindow.fetch === 'function' && targetWindow.fetch !== _patchedFetch) {
+            _warn('fetch was overwritten, re-patching...');
+            // Update _origFetch to chain through the page's new fetch
+            _origFetch = targetWindow.fetch;
+            // Re-install our full proxy wrapper on top
+            targetWindow.fetch = function wdrFetchReProxy(input, init) {
+                var fetchUrl = '';
+                if (typeof input === 'string') { fetchUrl = input; }
+                else if (input instanceof URL) { fetchUrl = input.toString(); }
+                else if (input && typeof input === 'object') { fetchUrl = input.url || ''; }
+                if (init && init.method) { /* fetchMethod captured in full proxy */ }
+
+                if (_shouldFilter(fetchUrl)) {
+                    return _origFetch.apply(targetWindow, arguments);
+                }
+
+                // Delegate to full proxy logic which calls _origFetch internally
+                var id = _generateId();
+                var startTime = _now();
+                var fetchMethod = 'GET';
+                if (init && init.method) { fetchMethod = init.method.toUpperCase(); }
+                else if (input && typeof input === 'object' && input.method) { fetchMethod = input.method.toUpperCase(); }
+
+                _dispatch('wdr:network:request-start', {
+                    id: id, url: fetchUrl, method: fetchMethod, timestamp: new Date().toISOString()
+                });
+
+                return _origFetch.apply(targetWindow, arguments).then(function (response) {
+                    var endTime = _now();
+                    var responseHeaders = {};
+                    try { if (response.headers) response.headers.forEach(function (v, k) { responseHeaders[k] = v; }); } catch (e) {}
+                    var mimeType = responseHeaders['content-type'] || '';
+                    if (mimeType.indexOf(';') !== -1) mimeType = mimeType.split(';')[0].trim();
+                    _addEntry({
+                        id: id, type: 'fetch', method: fetchMethod, url: fetchUrl,
+                        startTime: startTime, endTime: endTime, duration: endTime - startTime,
+                        status: response.status, statusText: response.statusText || '',
+                        requestHeaders: {}, responseHeaders: responseHeaders,
+                        requestBody: null, responseSize: parseInt(responseHeaders['content-length'], 10) || 0,
+                        transferSize: 0, mimeType: mimeType, initiatorType: 'fetch',
+                        error: null, timestamp: new Date().toISOString()
+                    });
+                    return response;
+                }).catch(function (err) {
+                    var endTime = _now();
+                    _addEntry({
+                        id: id, type: 'fetch', method: fetchMethod, url: fetchUrl,
+                        startTime: startTime, endTime: endTime, duration: endTime - startTime,
+                        status: 0, statusText: '', requestHeaders: {}, responseHeaders: {},
+                        requestBody: null, responseSize: 0, transferSize: 0, mimeType: '',
+                        initiatorType: 'fetch', error: err.message || String(err),
+                        timestamp: new Date().toISOString()
+                    });
+                    throw err;
+                });
+            };
+            _patchedFetch = targetWindow.fetch;
+        }
+
+        // Check sendBeacon
+        if (typeof Navigator !== 'undefined' && Navigator.prototype &&
+            typeof Navigator.prototype.sendBeacon === 'function' &&
+            Navigator.prototype.sendBeacon !== _patchedSendBeacon) {
+            _warn('sendBeacon was overwritten, re-patching...');
+            var overriddenBeacon = Navigator.prototype.sendBeacon;
+            Navigator.prototype.sendBeacon = function (url, data) {
+                if (!_shouldFilter(String(url))) {
+                    var beaconEntry = {
+                        id: _generateId(), type: 'beacon', method: 'POST',
+                        url: String(url), startTime: _now(), endTime: _now(),
+                        duration: 0, status: 0, statusText: '',
+                        requestHeaders: {}, responseHeaders: {},
+                        requestBody: _truncateBody(data), responseSize: 0,
+                        transferSize: 0, mimeType: '', initiatorType: 'beacon',
+                        error: null, timestamp: new Date().toISOString()
+                    };
+                    _addEntry(beaconEntry);
+                }
+                return overriddenBeacon.apply(this, arguments);
+            };
+            _patchedSendBeacon = Navigator.prototype.sendBeacon;
+        }
+    }
+
+    // Store references to our patched functions for re-patch detection
+    var _patchedOpen = targetWindow.XMLHttpRequest.prototype.open;
+    var _patchedFetch = targetWindow.fetch;
+    var _patchedSendBeacon = (typeof Navigator !== 'undefined' && Navigator.prototype) ? Navigator.prototype.sendBeacon : null;
+
+    // Check every 5 seconds
+    _patchCheckInterval = setInterval(_checkPatches, 5000);
 
     // -----------------------------------------------------------------------
     // Public API Methods
@@ -658,8 +922,7 @@
     function clear() {
         var previousCount = _entries.length;
         _entries = [];
-        _resourceEntries = [];
-        _dispatch('wdr:network:cleared', { previousCount: previousCount });
+        _dispatch('wdr:network:records-cleared', { previousCount: previousCount });
         _dispatch('wdr:network:count-updated', { count: 0 });
         _log('Cleared ' + previousCount + ' entries.');
     }
@@ -670,10 +933,6 @@
 
     function getEntries() {
         return _entries.slice();
-    }
-
-    function getResourceEntries() {
-        return _resourceEntries.slice();
     }
 
     function getEntryCount() {
@@ -747,6 +1006,14 @@
      */
     function exportHAR() {
         var harEntries = [];
+        var scriptVersion = '0.1.0';
+        try {
+            if (typeof GM_info !== 'undefined' && GM_info.script && GM_info.script.version) {
+                scriptVersion = GM_info.script.version;
+            }
+        } catch (e) {
+            // GM_info not available
+        }
 
         for (var i = 0; i < _entries.length; i++) {
             var entry = _entries[i];
@@ -797,6 +1064,13 @@
                 }
             }
 
+            // Timing mapping per architecture doc:
+            // - send: 0 (not measurable from userscript)
+            // - wait: duration * 0.8 (approximation)
+            // - receive: duration * 0.2 (approximation)
+            var waitTime = Math.round(entry.duration * 0.8);
+            var receiveTime = Math.round(entry.duration * 0.2);
+
             harEntries.push({
                 startedDateTime: entry.timestamp,
                 time: entry.duration,
@@ -827,8 +1101,8 @@
                 cache: {},
                 timings: {
                     send: 0,
-                    wait: entry.duration,
-                    receive: 0
+                    wait: waitTime,
+                    receive: receiveTime
                 }
             });
         }
@@ -841,8 +1115,8 @@
             log: {
                 version: '1.2',
                 creator: {
-                    name: 'WDR Network Recorder',
-                    version: '1.0.0'
+                    name: 'WEB Diagnostic Reporter',
+                    version: scriptVersion
                 },
                 browser: {
                     name: navigator.userAgent,
@@ -1009,7 +1283,6 @@
         clear: clear,
         isRecording: isRecording,
         getEntries: getEntries,
-        getResourceEntries: getResourceEntries,
         getEntryCount: getEntryCount,
         getFilteredEntries: getFilteredEntries,
         exportHAR: exportHAR,
