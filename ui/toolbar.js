@@ -20,6 +20,8 @@
     // State
     var _isOpen = false, _activeTab = 'network', _netEntries = [], _netCount = 0, _isRec = true, _expId = null, MAX_VIS = 100, _selectedIds = {};
     var _dragging = false, _dragSY = 0, _dragSB = 0, _dragMoved = false;
+    // Panel drag state
+    var _panelDragging = false, _panelDragSX = 0, _panelDragSY = 0, _panelDragOX = 0, _panelDragOY = 0, _panelDragMoved = false;
     var _bodyObserver = null; // MutationObserver for SPA navigation resilience
     var _eventCleanups = []; // Stores unsubscribe functions for all event listeners
 
@@ -62,14 +64,16 @@
     }
 
     function _buildHeader() {
-        var h = _el('div', 'wdr-toolbar-header', 'display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #303030;box-sizing:border-box');
-        var t = _el('span', null, 'font-size:16px;font-weight:600;color:#f1f1f1;line-height:1');
+        var h = _el('div', 'wdr-toolbar-header', 'display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #303030;box-sizing:border-box;cursor:grab;user-select:none;-webkit-user-select:none');
+        var t = _el('span', null, 'font-size:16px;font-weight:600;color:#f1f1f1;line-height:1;pointer-events:none');
         t.textContent = 'WDR Diagnostics';
-        var cb = _el('button', null, 'width:24px;height:24px;min-width:24px;min-height:24px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaaaaa;background:transparent;border:none;border-radius:4px;transition:color 150ms ease', { 'aria-label': 'Close panel' });
+        var cb = _el('button', null, 'width:24px;height:24px;min-width:24px;min-height:24px;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#aaaaaa;background:transparent;border:none;border-radius:4px;transition:color 150ms ease;pointer-events:auto', { 'aria-label': 'Close panel' });
         cb.className = 'tm-btn-ghost';
         cb.innerHTML = IC.close;
         cb.addEventListener('click', function (e) { e.stopPropagation(); closePanel(); });
         h.appendChild(t); h.appendChild(cb);
+        // Panel drag via header
+        h.addEventListener('mousedown', _panelDragStart);
         return h;
     }
 
@@ -230,14 +234,90 @@
     }
 
     // === PANEL OPEN/CLOSE ===
-    function openPanel() { var p = document.getElementById('wdr-toolbar-panel'); if (!p || _isOpen) return; _isOpen = true; var tb = document.getElementById('wdr-toolbar-toggle'); if (tb) p.style.bottom = (parseInt(tb.style.bottom, 10) || 20) + 48 + 'px'; p.style.display = 'block'; void p.offsetHeight; p.style.opacity = '1'; p.style.transform = 'translateY(0)'; _dispatch('wdr:toolbar:opened', {}); }
+    function openPanel() {
+        var p = document.getElementById('wdr-toolbar-panel');
+        if (!p || _isOpen) return;
+        _isOpen = true;
+        // Restore saved free position if available
+        if (_sGet('panelFreePosition', false)) {
+            var savedLeft = _sGet('panelLeft', null);
+            var savedTop = _sGet('panelTop', null);
+            if (savedLeft !== null && savedTop !== null) {
+                p.style.left = savedLeft + 'px';
+                p.style.top = savedTop + 'px';
+                p.style.right = 'auto';
+                p.style.bottom = 'auto';
+            }
+        } else {
+            var tb = document.getElementById('wdr-toolbar-toggle');
+            if (tb) p.style.bottom = (parseInt(tb.style.bottom, 10) || 20) + 48 + 'px';
+        }
+        p.style.display = 'block';
+        void p.offsetHeight;
+        p.style.opacity = '1';
+        p.style.transform = 'translateY(0)';
+        _dispatch('wdr:toolbar:opened', {});
+    }
     function closePanel() { var p = document.getElementById('wdr-toolbar-panel'); if (!p || !_isOpen) return; _isOpen = false; p.style.opacity = '0'; p.style.transform = 'translateY(8px)'; setTimeout(function () { if (!_isOpen) p.style.display = 'none'; }, 150); _dispatch('wdr:toolbar:closed', {}); }
     function togglePanel() { _isOpen ? closePanel() : openPanel(); }
 
-    // === DRAG ===
+    // === TOGGLE BUTTON DRAG ===
     function _dragStart(e) { if (e.button !== 0) return; _dragging = true; _dragMoved = false; _dragSY = e.clientY; _dragSB = parseInt(document.getElementById('wdr-toolbar-toggle').style.bottom, 10) || 20; document.addEventListener('mousemove', _dragMove); document.addEventListener('mouseup', _dragEnd); e.preventDefault(); }
     function _dragMove(e) { if (!_dragging) return; var dy = _dragSY - e.clientY; if (Math.abs(dy) > 5) _dragMoved = true; if (!_dragMoved) return; var nb = Math.max(8, Math.min(window.innerHeight - 48, _dragSB + dy)); var tb = document.getElementById('wdr-toolbar-toggle'); if (tb) tb.style.bottom = nb + 'px'; if (_isOpen) { var p = document.getElementById('wdr-toolbar-panel'); if (p) p.style.bottom = (nb + 48) + 'px'; } }
     function _dragEnd() { document.removeEventListener('mousemove', _dragMove); document.removeEventListener('mouseup', _dragEnd); if (_dragging && _dragMoved) { var tb = document.getElementById('wdr-toolbar-toggle'); if (tb) _sSet('togglePosition', parseInt(tb.style.bottom, 10) || 20); } else { togglePanel(); } _dragging = false; _dragMoved = false; }
+
+    // === PANEL DRAG (via header) ===
+    function _panelDragStart(e) {
+        if (e.button !== 0) return;
+        // Don't start drag if clicking the close button
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+        var p = document.getElementById('wdr-toolbar-panel');
+        if (!p) return;
+        _panelDragging = true;
+        _panelDragMoved = false;
+        _panelDragSX = e.clientX;
+        _panelDragSY = e.clientY;
+        // Get current panel position
+        var rect = p.getBoundingClientRect();
+        _panelDragOX = rect.left;
+        _panelDragOY = rect.top;
+        p.style.cursor = 'grabbing';
+        document.addEventListener('mousemove', _panelDragMove);
+        document.addEventListener('mouseup', _panelDragEnd);
+        e.preventDefault();
+    }
+    function _panelDragMove(e) {
+        if (!_panelDragging) return;
+        var dx = e.clientX - _panelDragSX;
+        var dy = e.clientY - _panelDragSY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) _panelDragMoved = true;
+        if (!_panelDragMoved) return;
+        var p = document.getElementById('wdr-toolbar-panel');
+        if (!p) return;
+        var nx = Math.max(0, Math.min(window.innerWidth - 100, _panelDragOX + dx));
+        var ny = Math.max(0, Math.min(window.innerHeight - 100, _panelDragOY + dy));
+        // Switch from bottom/right positioning to top/left for free-form drag
+        p.style.left = nx + 'px';
+        p.style.top = ny + 'px';
+        p.style.right = 'auto';
+        p.style.bottom = 'auto';
+    }
+    function _panelDragEnd() {
+        document.removeEventListener('mousemove', _panelDragMove);
+        document.removeEventListener('mouseup', _panelDragEnd);
+        var p = document.getElementById('wdr-toolbar-panel');
+        if (p) p.style.cursor = '';
+        if (_panelDragging && _panelDragMoved) {
+            // Save panel position
+            if (p) {
+                _sSet('panelLeft', parseInt(p.style.left, 10));
+                _sSet('panelTop', parseInt(p.style.top, 10));
+                _sSet('panelFreePosition', true);
+            }
+        }
+        _panelDragging = false;
+        _panelDragMoved = false;
+    }
 
     // === NETWORK LIST ===
     function _addNetEntry(entry) { _netEntries.push(entry); if (_netEntries.length > MAX_VIS) _netEntries = _netEntries.slice(-MAX_VIS); _renderNetEntry(entry); }
@@ -275,48 +355,66 @@
 
     function _fillDet(el, e) {
         el.innerHTML = '';
-        var lines = [['URL', _esc(e.url)], ['Type', _esc(e.type)], ['Method', _esc(e.method || 'GET')], ['Status', '<span style="color:' + _sClr(e.status) + '">' + (e.status || 0) + ' ' + _esc(e.statusText || '') + '</span>'], ['Duration', _fD(e.duration)], ['Size', _fB(e.responseSize || 0)]];
-        if (e.transferSize) lines.push(['Transfer', _fB(e.transferSize)]);
-        if (e.mimeType) lines.push(['MIME', _esc(e.mimeType)]);
-        if (e.initiatorType) lines.push(['Initiator', _esc(e.initiatorType)]);
-        if (e.timestamp) lines.push(['Time', _esc(e.timestamp)]);
+
+        // Re-fetch entry from NetworkRecorder to get latest data (e.g. async-populated responseBody)
+        var liveEntry = e;
+        if (window.WDR.NetworkRecorder && window.WDR.NetworkRecorder.getEntryById) {
+            var fresh = window.WDR.NetworkRecorder.getEntryById(e.id);
+            if (fresh) liveEntry = fresh;
+        }
+
+        var lines = [['URL', _esc(liveEntry.url)], ['Type', _esc(liveEntry.type)], ['Method', _esc(liveEntry.method || 'GET')], ['Status', '<span style="color:' + _sClr(liveEntry.status) + '">' + (liveEntry.status || 0) + ' ' + _esc(liveEntry.statusText || '') + '</span>'], ['Duration', _fD(liveEntry.duration)], ['Size', _fB(liveEntry.responseSize || 0)]];
+        if (liveEntry.transferSize) lines.push(['Transfer', _fB(liveEntry.transferSize)]);
+        if (liveEntry.mimeType) lines.push(['MIME', _esc(liveEntry.mimeType)]);
+        if (liveEntry.initiatorType) lines.push(['Initiator', _esc(liveEntry.initiatorType)]);
+        if (liveEntry.timestamp) lines.push(['Time', _esc(liveEntry.timestamp)]);
         for (var i = 0; i < lines.length; i++) { var d = _el('div', null, 'margin-bottom:4px;word-break:break-all'); d.innerHTML = '<strong style="color:#f1f1f1">' + lines[i][0] + ':</strong> ' + lines[i][1]; el.appendChild(d); }
-        _renderHdrs(el, 'Request Headers', e.requestHeaders);
-        _renderHdrs(el, 'Response Headers', e.responseHeaders);
+        _renderHdrs(el, 'Request Headers', liveEntry.requestHeaders);
+        _renderHdrs(el, 'Response Headers', liveEntry.responseHeaders);
 
         // Request body / payload display
-        if (e.requestBody) {
+        if (liveEntry.requestBody) {
             var rbW = _el('div', null, 'margin-top:6px');
             var rbL = _el('strong', null, 'color:#f1f1f1;font-size:11px'); rbL.textContent = 'Request Payload:';
             rbW.appendChild(rbL);
             var rbPre = _el('pre', null, 'background:#0a0a0a;border:1px solid #303030;border-radius:4px;padding:6px;font-size:10px;color:#aaaaaa;max-height:120px;overflow:auto;white-space:pre-wrap;word-break:break-all;margin:4px 0 0 0;font-family:monospace');
             // Try to pretty-print JSON payloads
             try {
-                var parsed = JSON.parse(e.requestBody);
+                var parsed = JSON.parse(liveEntry.requestBody);
                 rbPre.textContent = JSON.stringify(parsed, null, 2);
             } catch (ex) {
-                rbPre.textContent = e.requestBody;
+                rbPre.textContent = liveEntry.requestBody;
             }
             rbW.appendChild(rbPre);
             el.appendChild(rbW);
         }
 
-        if (e.error) { var ed = _el('div', null, 'margin-top:6px;color:#d32f2f'); ed.innerHTML = '<strong>Error:</strong> ' + _esc(e.error); el.appendChild(ed); }
+        if (liveEntry.error) { var ed = _el('div', null, 'margin-top:6px;color:#d32f2f'); ed.innerHTML = '<strong>Error:</strong> ' + _esc(liveEntry.error); el.appendChild(ed); }
 
         // Response body viewer (if body captured)
-        if (e.responseBody) {
-            _renderResponseBody(el, e);
+        if (liveEntry.responseBody) {
+            _renderResponseBody(el, liveEntry);
+        } else if (liveEntry.type === 'xhr' || liveEntry.type === 'fetch') {
+            // Show hint when no response body is available
+            var bodyCapEnabled = _sGet('captureResponseBodies', false);
+            var hint = _el('div', null, 'margin-top:6px;font-size:10px;color:#717171;font-style:italic');
+            if (!bodyCapEnabled) {
+                hint.textContent = 'Response body not captured. Enable "Capture response bodies" in Settings to view responses.';
+            } else {
+                hint.textContent = 'Response body not available for this request (may be binary or unavailable).';
+            }
+            el.appendChild(hint);
         }
 
         // Action buttons: Replay and Edit & Resend
-        if (e.type === 'xhr' || e.type === 'fetch') {
+        if (liveEntry.type === 'xhr' || liveEntry.type === 'fetch') {
             var btnRow = _el('div', null, 'display:flex;gap:6px;margin-top:8px');
             var rpBtn = _el('button', null, 'flex:1;font-size:11px;padding:4px 8px;min-height:28px');
             rpBtn.className = 'tm-btn-secondary'; rpBtn.textContent = 'Replay';
-            rpBtn.addEventListener('click', function (ev) { ev.stopPropagation(); _dispatch('wdr:toolbar:replay-request', { entryId: e.id }); });
+            rpBtn.addEventListener('click', function (ev) { ev.stopPropagation(); _dispatch('wdr:toolbar:replay-request', { entryId: liveEntry.id }); });
             var edBtn = _el('button', null, 'flex:1;font-size:11px;padding:4px 8px;min-height:28px');
             edBtn.className = 'tm-btn-secondary'; edBtn.textContent = 'Edit & Resend';
-            edBtn.addEventListener('click', function (ev) { ev.stopPropagation(); _openRequestEditor(e); });
+            edBtn.addEventListener('click', function (ev) { ev.stopPropagation(); _openRequestEditor(liveEntry); });
             btnRow.appendChild(rpBtn); btnRow.appendChild(edBtn); el.appendChild(btnRow);
         }
     }
@@ -902,9 +1000,16 @@
         _bindEvents();
         _startBodyObserver();
 
-        // Check initial recording state
-        if (window.WDR.NetworkRecorder && typeof window.WDR.NetworkRecorder.isRecording === 'function') {
-            _isRec = window.WDR.NetworkRecorder.isRecording();
+        // Check initial recording state and apply autoRecord setting
+        var autoRecord = _sGet('autoRecord', true);
+        if (window.WDR.NetworkRecorder) {
+            if (!autoRecord && typeof window.WDR.NetworkRecorder.stop === 'function') {
+                // User has disabled auto-record; stop recording on page load
+                window.WDR.NetworkRecorder.stop();
+                _isRec = false;
+            } else if (typeof window.WDR.NetworkRecorder.isRecording === 'function') {
+                _isRec = window.WDR.NetworkRecorder.isRecording();
+            }
             _updRec(_isRec);
         }
 

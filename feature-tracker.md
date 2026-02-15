@@ -126,3 +126,110 @@
 - [x] Replay history sub-section or indicator in Network tab
 - [x] Event wiring: toolbar dispatches replay/editor commands, listens for replay results
 - [x] Update version to 1.1.0
+
+## BUGs:
+- [x] double downloads
+- [x] recording state between refreshes should be a setting
+- [x] needs a draggable UI
+- [x] cant view responses?
+- [x] check all previous features
+
+---
+
+## Console Logger (new: modules/console-logger.js)
+
+- [ ] Intercept console.log, console.warn, console.error, console.info, console.debug
+- [ ] Capture stack traces for each console call
+- [ ] Timestamp each message with high-resolution timing
+- [ ] Capture uncaught errors via window.onerror and unhandledrejection
+- [ ] Store messages in a capped ring buffer (configurable max, default 1000)
+- [ ] Console tab in toolbar with color-coded log levels
+- [ ] Filter by log level (log/warn/error/info/debug)
+- [ ] Search within console messages
+- [ ] Clear console history
+- [ ] Export console log as JSON
+- [ ] Preserve original console output (don't suppress)
+
+## Performance Metrics (new: modules/performance-metrics.js)
+
+- [ ] Core Web Vitals: Largest Contentful Paint (LCP)
+- [ ] Core Web Vitals: First Input Delay (FID) / Interaction to Next Paint (INP)
+- [ ] Core Web Vitals: Cumulative Layout Shift (CLS)
+- [ ] First Contentful Paint (FCP) via PerformanceObserver
+- [ ] Time to First Byte (TTFB) from Navigation Timing
+- [ ] DOM Content Loaded and Load event timing
+- [ ] Resource count breakdown by type (scripts, styles, images, fonts)
+- [ ] Total page weight calculation (transfer size sum)
+- [ ] Long task detection via PerformanceObserver (tasks > 50ms)
+- [ ] Memory usage tracking (performance.memory if available)
+- [ ] Performance score card in toolbar (green/yellow/red thresholds)
+- [ ] Performance tab in toolbar with timeline visualization
+- [ ] Export performance report as JSON
+
+## Cookie & Storage Inspector (new: modules/storage-inspector.js)
+
+- [ ] Read and display all document.cookie entries (name, value, domain, path, expiry)
+- [ ] Read and display all localStorage key/value pairs
+- [ ] Read and display all sessionStorage key/value pairs
+- [ ] Edit cookie values inline
+- [ ] Delete individual cookies
+- [ ] Edit localStorage/sessionStorage values inline
+- [ ] Delete individual storage entries
+- [ ] Clear all localStorage or sessionStorage
+- [ ] Storage size usage display (bytes used per storage type)
+- [ ] Real-time monitoring for storage changes (StorageEvent listener)
+- [ ] Storage tab in toolbar
+- [ ] Export all storage data as JSON
+
+## WebSocket Monitor (new: modules/websocket-monitor.js)
+
+- [ ] Intercept WebSocket constructor to track connections
+- [ ] Log connection open/close/error events with timestamps
+- [ ] Capture outgoing messages (send) with payload and timing
+- [ ] Capture incoming messages (onmessage) with payload and timing
+- [ ] Display message direction (sent vs. received) with visual indicators
+- [ ] JSON pretty-print for JSON-formatted WebSocket messages
+- [ ] Connection state indicator (connecting, open, closing, closed)
+- [ ] Filter messages by direction, connection URL, or content
+- [ ] Message size tracking
+- [ ] WebSocket sub-section in Network tab or separate tab
+- [ ] Export WebSocket log as JSON
+
+## DOM Inspector Enhancements
+
+- [ ] Element picker tool (click-to-inspect any element on page)
+- [ ] Display computed styles for selected element
+- [ ] Show element box model (margin, border, padding, content dimensions)
+- [ ] Display element accessibility tree info (role, name, state)
+- [ ] Highlight element on hover with overlay
+- [ ] Copy element selector path to clipboard
+- [ ] DOM tree snapshot export (simplified HTML structure)
+
+## Replay Diff Viewer (toolbar.js enhancement)
+
+- [ ] Side-by-side visual diff for response bodies (original vs. replay)
+- [ ] Inline diff highlighting (additions in green, removals in red)
+- [ ] Header diff table with change type indicators (added/removed/changed)
+- [ ] Status code comparison badge
+- [ ] Timing comparison bar chart
+- [ ] "Diff" button in network detail view (appears after replay)
+
+## Import & Compare
+
+- [ ] Import HAR files via file input or drag-and-drop
+- [ ] Parse imported HAR into internal entry format
+- [ ] Display imported entries alongside or instead of live entries
+- [ ] Compare imported HAR entries with live-captured entries by URL
+- [ ] Highlight differences between imported and live data
+- [ ] Import JSON export files (re-load previously exported sessions)
+
+## Toolbar UI Enhancements
+
+- [ ] Resizable panel (drag panel edge to resize width)
+- [ ] Pin/unpin panel (keep open when clicking outside)
+- [ ] Compact mode (minimal UI with just counters)
+- [ ] Keyboard shortcuts (Ctrl+Shift+D to toggle, Ctrl+Shift+N for network, etc.)
+- [ ] Badge notification on toggle button when new errors are captured
+- [ ] Theme toggle (dark/light mode) in Settings tab
+- [ ] Configurable max entries limit in Settings tab
+- [ ] Panel position memory (left/right edge preference)

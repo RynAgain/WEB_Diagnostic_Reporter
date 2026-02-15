@@ -1394,7 +1394,7 @@
         var data = exportJSON();
         var blob = new Blob([data], { type: 'application/json' });
         _dispatch('wdr:network:export-ready', { format: 'json', blob: blob });
-        downloadJSON();
+        // NOTE: download is handled by toolbar via wdr:network:export-ready — do NOT call downloadJSON() here
     });
 
     _on('wdr:toolbar:network-export-har', function () {
@@ -1402,7 +1402,7 @@
         var data = JSON.stringify(har, null, 2);
         var blob = new Blob([data], { type: 'application/json' });
         _dispatch('wdr:network:export-ready', { format: 'har', blob: blob });
-        downloadHAR();
+        // NOTE: download is handled by toolbar via wdr:network:export-ready — do NOT call downloadHAR() here
     });
 
     _on('wdr:network:toggle-body-capture', function () {

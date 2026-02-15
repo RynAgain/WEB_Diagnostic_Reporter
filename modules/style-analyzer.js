@@ -1867,7 +1867,7 @@
             var data = JSON.stringify(_lastReport, null, 2);
             var blob = new Blob([data], { type: 'application/json' });
             _dispatch('wdr:styles-analyzer:export-ready', { format: 'json', blob: blob });
-            downloadReport();
+            // NOTE: download is handled by toolbar via wdr:styles-analyzer:export-ready — do NOT call downloadReport() here
         } else {
             _warn('No report to export. Run analysis first.');
         }
