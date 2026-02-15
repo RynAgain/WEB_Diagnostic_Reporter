@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WEB Diagnostic Reporter
 // @namespace    https://github.com/Rynagain/WEB_Diagnostic_Reporter
-// @version      1.1.0
+// @version      1.2.0
 // @description  A comprehensive web diagnostic tool for recording network requests, analyzing styles, and exporting detailed reports
 // @author       Rynagain
 // @match        *://*/*
@@ -24,6 +24,11 @@
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/network-recorder.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/style-analyzer.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/request-replay.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/console-logger.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/performance-metrics.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/storage-inspector.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/websocket-monitor.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/dom-inspector.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/updater.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/ui/toolbar.js
 // ==/UserScript==
@@ -36,7 +41,7 @@
     // and CURRENT_VERSION in modules/updater.js
     // -----------------------------------------------------------------------
 
-    var VERSION = '1.1.0';
+    var VERSION = '1.2.0';
 
     // -----------------------------------------------------------------------
     // Helper functions (inline, since utils may not be loaded yet)
@@ -109,15 +114,20 @@
     // -----------------------------------------------------------------------
 
     var MODULE_REGISTRY = {
-        utils:           { namespace: 'Utils',           readyAttr: 'wdrUtilsReady',          readyEvent: 'wdr:utils:ready',           loaded: false },
-        events:          { namespace: 'Events',          readyAttr: 'wdrEventsReady',          readyEvent: 'wdr:events:ready',          loaded: false },
-        storage:         { namespace: 'Storage',         readyAttr: 'wdrStorageReady',         readyEvent: 'wdr:storage:ready',         loaded: false },
-        styles:          { namespace: 'Styles',          readyAttr: 'wdrStylesReady',          readyEvent: 'wdr:styles:ready',          loaded: false },
-        networkRecorder: { namespace: 'NetworkRecorder', readyAttr: 'wdrNetworkRecorderReady', readyEvent: 'wdr:network:ready',         loaded: false },
-        styleAnalyzer:   { namespace: 'StyleAnalyzer',   readyAttr: 'wdrStyleAnalyzerReady',   readyEvent: 'wdr:styles-analyzer:ready', loaded: false },
-        requestReplay:   { namespace: 'RequestReplay',   readyAttr: 'wdrRequestReplayReady',   readyEvent: 'wdr:replay:ready',          loaded: false },
-        updater:         { namespace: 'Updater',         readyAttr: 'wdrUpdaterReady',         readyEvent: 'wdr:updater:ready',         loaded: false },
-        toolbar:         { namespace: 'Toolbar',         readyAttr: 'wdrToolbarReady',         readyEvent: 'wdr:toolbar:ready',         loaded: false }
+        utils:              { namespace: 'Utils',              readyAttr: 'wdrUtilsReady',              readyEvent: 'wdr:utils:ready',              loaded: false },
+        events:             { namespace: 'Events',             readyAttr: 'wdrEventsReady',             readyEvent: 'wdr:events:ready',             loaded: false },
+        storage:            { namespace: 'Storage',            readyAttr: 'wdrStorageReady',            readyEvent: 'wdr:storage:ready',            loaded: false },
+        styles:             { namespace: 'Styles',             readyAttr: 'wdrStylesReady',             readyEvent: 'wdr:styles:ready',             loaded: false },
+        networkRecorder:    { namespace: 'NetworkRecorder',    readyAttr: 'wdrNetworkRecorderReady',    readyEvent: 'wdr:network:ready',            loaded: false },
+        styleAnalyzer:      { namespace: 'StyleAnalyzer',      readyAttr: 'wdrStyleAnalyzerReady',      readyEvent: 'wdr:styles-analyzer:ready',    loaded: false },
+        requestReplay:      { namespace: 'RequestReplay',      readyAttr: 'wdrRequestReplayReady',      readyEvent: 'wdr:replay:ready',             loaded: false },
+        consoleLogger:      { namespace: 'ConsoleLogger',      readyAttr: 'wdrConsoleLoggerReady',      readyEvent: 'wdr:console:ready',            loaded: false },
+        performanceMetrics: { namespace: 'PerformanceMetrics', readyAttr: 'wdrPerformanceMetricsReady', readyEvent: 'wdr:performance:ready',        loaded: false },
+        storageInspector:   { namespace: 'StorageInspector',   readyAttr: 'wdrStorageInspectorReady',   readyEvent: 'wdr:storage-inspector:ready',  loaded: false },
+        webSocketMonitor:   { namespace: 'WebSocketMonitor',   readyAttr: 'wdrWebSocketMonitorReady',   readyEvent: 'wdr:websocket:ready',          loaded: false },
+        domInspector:       { namespace: 'DOMInspector',       readyAttr: 'wdrDomInspectorReady',       readyEvent: 'wdr:dom-inspector:ready',      loaded: false },
+        updater:            { namespace: 'Updater',            readyAttr: 'wdrUpdaterReady',            readyEvent: 'wdr:updater:ready',            loaded: false },
+        toolbar:            { namespace: 'Toolbar',            readyAttr: 'wdrToolbarReady',            readyEvent: 'wdr:toolbar:ready',            loaded: false }
     };
 
     // -----------------------------------------------------------------------

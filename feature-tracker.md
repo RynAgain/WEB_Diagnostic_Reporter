@@ -138,98 +138,98 @@
 
 ## Console Logger (new: modules/console-logger.js)
 
-- [ ] Intercept console.log, console.warn, console.error, console.info, console.debug
-- [ ] Capture stack traces for each console call
-- [ ] Timestamp each message with high-resolution timing
-- [ ] Capture uncaught errors via window.onerror and unhandledrejection
-- [ ] Store messages in a capped ring buffer (configurable max, default 1000)
-- [ ] Console tab in toolbar with color-coded log levels
-- [ ] Filter by log level (log/warn/error/info/debug)
-- [ ] Search within console messages
-- [ ] Clear console history
-- [ ] Export console log as JSON
-- [ ] Preserve original console output (don't suppress)
+- [x] Intercept console.log, console.warn, console.error, console.info, console.debug
+- [x] Capture stack traces for each console call
+- [x] Timestamp each message with high-resolution timing
+- [x] Capture uncaught errors via window.onerror and unhandledrejection
+- [x] Store messages in a capped ring buffer (configurable max, default 1000)
+- [x] Console tab in toolbar with color-coded log levels
+- [x] Filter by log level (log/warn/error/info/debug)
+- [x] Search within console messages
+- [x] Clear console history
+- [x] Export console log as JSON
+- [x] Preserve original console output (don't suppress)
 
 ## Performance Metrics (new: modules/performance-metrics.js)
 
-- [ ] Core Web Vitals: Largest Contentful Paint (LCP)
-- [ ] Core Web Vitals: First Input Delay (FID) / Interaction to Next Paint (INP)
-- [ ] Core Web Vitals: Cumulative Layout Shift (CLS)
-- [ ] First Contentful Paint (FCP) via PerformanceObserver
-- [ ] Time to First Byte (TTFB) from Navigation Timing
-- [ ] DOM Content Loaded and Load event timing
-- [ ] Resource count breakdown by type (scripts, styles, images, fonts)
-- [ ] Total page weight calculation (transfer size sum)
-- [ ] Long task detection via PerformanceObserver (tasks > 50ms)
-- [ ] Memory usage tracking (performance.memory if available)
-- [ ] Performance score card in toolbar (green/yellow/red thresholds)
-- [ ] Performance tab in toolbar with timeline visualization
-- [ ] Export performance report as JSON
+- [x] Core Web Vitals: Largest Contentful Paint (LCP)
+- [x] Core Web Vitals: First Input Delay (FID) / Interaction to Next Paint (INP)
+- [x] Core Web Vitals: Cumulative Layout Shift (CLS)
+- [x] First Contentful Paint (FCP) via PerformanceObserver
+- [x] Time to First Byte (TTFB) from Navigation Timing
+- [x] DOM Content Loaded and Load event timing
+- [x] Resource count breakdown by type (scripts, styles, images, fonts)
+- [x] Total page weight calculation (transfer size sum)
+- [x] Long task detection via PerformanceObserver (tasks > 50ms)
+- [x] Memory usage tracking (performance.memory if available)
+- [x] Performance score card in toolbar (green/yellow/red thresholds)
+- [x] Performance tab in toolbar with timeline visualization
+- [x] Export performance report as JSON
 
 ## Cookie & Storage Inspector (new: modules/storage-inspector.js)
 
-- [ ] Read and display all document.cookie entries (name, value, domain, path, expiry)
-- [ ] Read and display all localStorage key/value pairs
-- [ ] Read and display all sessionStorage key/value pairs
-- [ ] Edit cookie values inline
-- [ ] Delete individual cookies
-- [ ] Edit localStorage/sessionStorage values inline
-- [ ] Delete individual storage entries
-- [ ] Clear all localStorage or sessionStorage
-- [ ] Storage size usage display (bytes used per storage type)
-- [ ] Real-time monitoring for storage changes (StorageEvent listener)
-- [ ] Storage tab in toolbar
-- [ ] Export all storage data as JSON
+- [x] Read and display all document.cookie entries (name, value, domain, path, expiry)
+- [x] Read and display all localStorage key/value pairs
+- [x] Read and display all sessionStorage key/value pairs
+- [x] Edit cookie values inline
+- [x] Delete individual cookies
+- [x] Edit localStorage/sessionStorage values inline
+- [x] Delete individual storage entries
+- [x] Clear all localStorage or sessionStorage
+- [x] Storage size usage display (bytes used per storage type)
+- [x] Real-time monitoring for storage changes (StorageEvent listener)
+- [x] Storage tab in toolbar
+- [x] Export all storage data as JSON
 
 ## WebSocket Monitor (new: modules/websocket-monitor.js)
 
-- [ ] Intercept WebSocket constructor to track connections
-- [ ] Log connection open/close/error events with timestamps
-- [ ] Capture outgoing messages (send) with payload and timing
-- [ ] Capture incoming messages (onmessage) with payload and timing
-- [ ] Display message direction (sent vs. received) with visual indicators
-- [ ] JSON pretty-print for JSON-formatted WebSocket messages
-- [ ] Connection state indicator (connecting, open, closing, closed)
-- [ ] Filter messages by direction, connection URL, or content
-- [ ] Message size tracking
-- [ ] WebSocket sub-section in Network tab or separate tab
-- [ ] Export WebSocket log as JSON
+- [x] Intercept WebSocket constructor to track connections
+- [x] Log connection open/close/error events with timestamps
+- [x] Capture outgoing messages (send) with payload and timing
+- [x] Capture incoming messages (onmessage) with payload and timing
+- [x] Display message direction (sent vs. received) with visual indicators
+- [x] JSON pretty-print for JSON-formatted WebSocket messages
+- [x] Connection state indicator (connecting, open, closing, closed)
+- [x] Filter messages by direction, connection URL, or content
+- [x] Message size tracking
+- [x] WebSocket sub-section in Network tab or separate tab
+- [x] Export WebSocket log as JSON
 
 ## DOM Inspector Enhancements
 
-- [ ] Element picker tool (click-to-inspect any element on page)
-- [ ] Display computed styles for selected element
-- [ ] Show element box model (margin, border, padding, content dimensions)
-- [ ] Display element accessibility tree info (role, name, state)
-- [ ] Highlight element on hover with overlay
-- [ ] Copy element selector path to clipboard
-- [ ] DOM tree snapshot export (simplified HTML structure)
+- [x] Element picker tool (click-to-inspect any element on page)
+- [x] Display computed styles for selected element
+- [x] Show element box model (margin, border, padding, content dimensions)
+- [x] Display element accessibility tree info (role, name, state)
+- [x] Highlight element on hover with overlay
+- [x] Copy element selector path to clipboard
+- [x] DOM tree snapshot export (simplified HTML structure)
 
 ## Replay Diff Viewer (toolbar.js enhancement)
 
-- [ ] Side-by-side visual diff for response bodies (original vs. replay)
-- [ ] Inline diff highlighting (additions in green, removals in red)
-- [ ] Header diff table with change type indicators (added/removed/changed)
-- [ ] Status code comparison badge
-- [ ] Timing comparison bar chart
-- [ ] "Diff" button in network detail view (appears after replay)
+- [x] Side-by-side visual diff for response bodies (original vs. replay)
+- [x] Inline diff highlighting (additions in green, removals in red)
+- [x] Header diff table with change type indicators (added/removed/changed)
+- [x] Status code comparison badge
+- [x] Timing comparison bar chart
+- [x] "Diff" button in network detail view (appears after replay)
 
 ## Import & Compare
 
-- [ ] Import HAR files via file input or drag-and-drop
-- [ ] Parse imported HAR into internal entry format
-- [ ] Display imported entries alongside or instead of live entries
-- [ ] Compare imported HAR entries with live-captured entries by URL
-- [ ] Highlight differences between imported and live data
-- [ ] Import JSON export files (re-load previously exported sessions)
+- [x] Import HAR files via file input or drag-and-drop
+- [x] Parse imported HAR into internal entry format
+- [x] Display imported entries alongside or instead of live entries
+- [x] Compare imported HAR entries with live-captured entries by URL
+- [x] Highlight differences between imported and live data
+- [x] Import JSON export files (re-load previously exported sessions)
 
 ## Toolbar UI Enhancements
 
-- [ ] Resizable panel (drag panel edge to resize width)
-- [ ] Pin/unpin panel (keep open when clicking outside)
-- [ ] Compact mode (minimal UI with just counters)
-- [ ] Keyboard shortcuts (Ctrl+Shift+D to toggle, Ctrl+Shift+N for network, etc.)
-- [ ] Badge notification on toggle button when new errors are captured
+- [x] Resizable panel (drag panel edge to resize width)
+- [x] Pin/unpin panel (keep open when clicking outside)
+- [x] Compact mode (minimal UI with just counters)
+- [x] Keyboard shortcuts (Ctrl+Shift+D to toggle, Ctrl+Shift+N for network, etc.)
+- [x] Badge notification on toggle button when new errors are captured
 - [ ] Theme toggle (dark/light mode) in Settings tab
-- [ ] Configurable max entries limit in Settings tab
-- [ ] Panel position memory (left/right edge preference)
+- [x] Configurable max entries limit in Settings tab
+- [x] Panel position memory (left/right edge preference)
