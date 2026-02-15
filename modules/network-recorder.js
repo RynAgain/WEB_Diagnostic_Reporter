@@ -73,12 +73,29 @@
     // -----------------------------------------------------------------------
 
     var _recording = true;
+    var _captureResponseBodies = false; // Off by default to preserve performance
     var _entries = [];
     var _idCounter = 0;
     var MAX_ENTRIES = 5000;
-    var BODY_TRUNCATE_LIMIT = 10240; // 10KB
+    var BODY_TRUNCATE_LIMIT = 10240; // 10KB for request bodies
+    var RESPONSE_BODY_LIMIT = 51200; // 50KB max for response body capture
     var FILTERED_DOMAINS = ['raw.githubusercontent.com'];
     var _patchCheckInterval = null;
+
+    // MIME types eligible for response body capture (text-based only)
+    var TEXT_MIME_PATTERNS = [
+        'text/',
+        'application/json',
+        'application/xml',
+        'application/xhtml+xml',
+        'application/javascript',
+        'application/x-javascript',
+        'application/ecmascript',
+        'application/ld+json',
+        'application/manifest+json',
+        'application/vnd.api+json',
+        'image/svg+xml'
+    ];
 
     // -----------------------------------------------------------------------
     // ID generation (inline fallback — utils may not be loaded yet)
@@ -101,6 +118,45 @@
             return performance.now();
         }
         return Date.now();
+    }
+
+    // -----------------------------------------------------------------------
+    // MIME type check — is this a text-based response we should capture?
+    // -----------------------------------------------------------------------
+
+    /**
+     * Returns true if the MIME type is text-based and eligible for body capture.
+     * Skips binary, image, audio, video, and font types.
+     * @param {string} mimeType
+     * @returns {boolean}
+     */
+    function _isTextMime(mimeType) {
+        if (!mimeType || typeof mimeType !== 'string') {
+            return false;
+        }
+        var lower = mimeType.toLowerCase().trim();
+        for (var i = 0; i < TEXT_MIME_PATTERNS.length; i++) {
+            if (lower.indexOf(TEXT_MIME_PATTERNS[i]) !== -1) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Truncates a response body string to RESPONSE_BODY_LIMIT bytes.
+     * Appends a truncation marker if the body exceeds the limit.
+     * @param {string} body
+     * @returns {string}
+     */
+    function _truncateResponseBody(body) {
+        if (!body || typeof body !== 'string') {
+            return null;
+        }
+        if (body.length > RESPONSE_BODY_LIMIT) {
+            return body.substring(0, RESPONSE_BODY_LIMIT) + '\n... [truncated at 50KB]';
+        }
+        return body;
     }
 
     // -----------------------------------------------------------------------
@@ -300,6 +356,18 @@
                     errorMsg = 'Request failed or aborted (status 0)';
                 }
 
+                // Capture response body if enabled and MIME type is text-based
+                var responseBody = null;
+                if (_captureResponseBodies && _isTextMime(mimeType) && !errorMsg) {
+                    try {
+                        var rawBody = self.responseText || (typeof self.response === 'string' ? self.response : null);
+                        responseBody = _truncateResponseBody(rawBody);
+                    } catch (e) {
+                        // responseText may throw if responseType is not '' or 'text'
+                        responseBody = null;
+                    }
+                }
+
                 var entry = {
                     id: wdr.id,
                     type: 'xhr',
@@ -313,6 +381,7 @@
                     requestHeaders: wdr.requestHeaders,
                     responseHeaders: responseHeaders,
                     requestBody: wdr.requestBody,
+                    responseBody: responseBody,
                     responseSize: responseSize,
                     transferSize: 0,
                     mimeType: mimeType,
@@ -439,6 +508,7 @@
                     requestHeaders: fetchHeaders,
                     responseHeaders: {},
                     requestBody: fetchBody,
+                    responseBody: null,
                     responseSize: 0,
                     transferSize: 0,
                     mimeType: '',
@@ -482,23 +552,39 @@
                     responseSize = parseInt(contentLength, 10) || 0;
                 }
 
-                // Clone the response to read body size without consuming
-                // Only attempt if content-length was not provided
-                if (!contentLength) {
+                // Clone the response for body size and optional body capture
+                var shouldCaptureBody = _captureResponseBodies && _isTextMime(mimeType);
+
+                if (!contentLength || shouldCaptureBody) {
                     try {
                         var cloned = response.clone();
-                        cloned.arrayBuffer().then(function (buffer) {
-                            responseSize = buffer.byteLength;
-                            // Update the entry after we know the size
-                            for (var k = _entries.length - 1; k >= 0; k--) {
-                                if (_entries[k].id === id) {
-                                    _entries[k].responseSize = responseSize;
-                                    break;
+                        if (shouldCaptureBody) {
+                            // Read as text for body capture + size
+                            cloned.text().then(function (bodyText) {
+                                for (var k = _entries.length - 1; k >= 0; k--) {
+                                    if (_entries[k].id === id) {
+                                        if (!contentLength) {
+                                            _entries[k].responseSize = bodyText.length;
+                                        }
+                                        _entries[k].responseBody = _truncateResponseBody(bodyText);
+                                        break;
+                                    }
                                 }
-                            }
-                        }).catch(function () {
-                            // Body consumption failed, keep existing size
-                        });
+                            }).catch(function () {
+                                // Body consumption failed
+                            });
+                        } else if (!contentLength) {
+                            cloned.arrayBuffer().then(function (buffer) {
+                                for (var k = _entries.length - 1; k >= 0; k--) {
+                                    if (_entries[k].id === id) {
+                                        _entries[k].responseSize = buffer.byteLength;
+                                        break;
+                                    }
+                                }
+                            }).catch(function () {
+                                // Body consumption failed, keep existing size
+                            });
+                        }
                     } catch (e) {
                         // clone() not available or failed
                     }
@@ -517,6 +603,7 @@
                     requestHeaders: fetchHeaders,
                     responseHeaders: responseHeaders,
                     requestBody: fetchBody,
+                    responseBody: null, // Will be populated asynchronously if capture is enabled
                     responseSize: responseSize,
                     transferSize: 0,
                     mimeType: mimeType,
@@ -545,6 +632,7 @@
                     requestHeaders: fetchHeaders,
                     responseHeaders: {},
                     requestBody: fetchBody,
+                    responseBody: null,
                     responseSize: 0,
                     transferSize: 0,
                     mimeType: '',
@@ -611,6 +699,7 @@
                         requestHeaders: {},
                         responseHeaders: {},
                         requestBody: null,
+                        responseBody: null,
                         responseSize: pe.decodedBodySize || 0,
                         transferSize: pe.transferSize || 0,
                         mimeType: '',
@@ -657,6 +746,7 @@
                     requestHeaders: {},
                     responseHeaders: {},
                     requestBody: null,
+                    responseBody: null,
                     responseSize: nav.decodedBodySize || 0,
                     transferSize: nav.transferSize || 0,
                     mimeType: 'text/html',
@@ -730,6 +820,7 @@
                     requestHeaders: {},
                     responseHeaders: {},
                     requestBody: beaconBody,
+                    responseBody: null,
                     responseSize: 0,
                     transferSize: 0,
                     mimeType: '',
@@ -937,6 +1028,47 @@
 
     function getEntryCount() {
         return _entries.length;
+    }
+
+    /**
+     * Enables response body capture for text-based MIME types.
+     * Bodies are capped at 50KB per response.
+     */
+    function enableBodyCapture() {
+        _captureResponseBodies = true;
+        _dispatch('wdr:network:body-capture-changed', { enabled: true });
+        _log('Response body capture enabled.');
+    }
+
+    /**
+     * Disables response body capture.
+     */
+    function disableBodyCapture() {
+        _captureResponseBodies = false;
+        _dispatch('wdr:network:body-capture-changed', { enabled: false });
+        _log('Response body capture disabled.');
+    }
+
+    /**
+     * Returns whether response body capture is currently enabled.
+     * @returns {boolean}
+     */
+    function isBodyCaptureEnabled() {
+        return _captureResponseBodies;
+    }
+
+    /**
+     * Returns a single entry by ID, or null if not found.
+     * @param {string} id
+     * @returns {Object|null}
+     */
+    function getEntryById(id) {
+        for (var i = _entries.length - 1; i >= 0; i--) {
+            if (_entries[i].id === id) {
+                return _entries[i];
+            }
+        }
+        return null;
     }
 
     // -----------------------------------------------------------------------
@@ -1273,6 +1405,22 @@
         downloadHAR();
     });
 
+    _on('wdr:network:toggle-body-capture', function () {
+        if (_captureResponseBodies) {
+            disableBodyCapture();
+        } else {
+            enableBodyCapture();
+        }
+    });
+
+    _on('wdr:toolbar:network-enable-body-capture', function () {
+        enableBodyCapture();
+    });
+
+    _on('wdr:toolbar:network-disable-body-capture', function () {
+        disableBodyCapture();
+    });
+
     // -----------------------------------------------------------------------
     // Expose Public API
     // -----------------------------------------------------------------------
@@ -1284,7 +1432,11 @@
         isRecording: isRecording,
         getEntries: getEntries,
         getEntryCount: getEntryCount,
+        getEntryById: getEntryById,
         getFilteredEntries: getFilteredEntries,
+        enableBodyCapture: enableBodyCapture,
+        disableBodyCapture: disableBodyCapture,
+        isBodyCaptureEnabled: isBodyCaptureEnabled,
         exportHAR: exportHAR,
         exportJSON: exportJSON,
         downloadHAR: downloadHAR,

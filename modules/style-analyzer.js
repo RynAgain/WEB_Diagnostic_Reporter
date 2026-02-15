@@ -1166,7 +1166,474 @@
     }
 
     // -----------------------------------------------------------------------
-    // 7. Design Consistency Score
+    // 7. CSS Specificity Scoring
+    // -----------------------------------------------------------------------
+
+    /**
+     * Calculates the specificity of a single CSS selector using the (a, b, c) model.
+     *   a = number of ID selectors (#id)
+     *   b = number of class selectors (.class), attribute selectors ([attr]),
+     *       and pseudo-classes (:hover, :nth-child, etc.)
+     *   c = number of type selectors (div, p, h1) and pseudo-elements (::before)
+     *
+     * Returns an object { a, b, c, score } where score = a*100 + b*10 + c.
+     * This simplified score works for comparison when a < 10 and b < 10.
+     *
+     * @param {string} selector - A single CSS selector (not comma-separated).
+     * @returns {{ a: number, b: number, c: number, score: number }}
+     */
+    function _calculateSpecificity(selector) {
+        var a = 0, b = 0, c = 0;
+
+        if (!selector || typeof selector !== 'string') {
+            return { a: 0, b: 0, c: 0, score: 0 };
+        }
+
+        // Work on a cleaned copy
+        var sel = selector.trim();
+
+        // Remove :not() wrapper but keep its inner argument for scoring
+        // :not(.foo) contributes .foo's specificity, not the :not() pseudo-class itself
+        sel = sel.replace(/:not\(([^)]*)\)/g, ' $1 ');
+
+        // Remove :is() / :where() / :has() — :where() has zero specificity,
+        // :is()/:has() take the specificity of their most-specific argument.
+        // For a practical approximation, we treat :is()/:has() like :not().
+        sel = sel.replace(/:(?:is|has)\(([^)]*)\)/g, ' $1 ');
+        sel = sel.replace(/:where\([^)]*\)/g, '');
+
+        // Strip strings and attribute values to avoid false positives
+        sel = sel.replace(/\[[^\]]*\]/g, function () {
+            b++; // Each attribute selector increments b
+            return '';
+        });
+
+        // Count and remove ID selectors (#id)
+        var idMatches = sel.match(/#[a-zA-Z_][\w-]*/g);
+        if (idMatches) {
+            a += idMatches.length;
+            sel = sel.replace(/#[a-zA-Z_][\w-]*/g, '');
+        }
+
+        // Count and remove pseudo-elements (::before, ::after, ::first-line, etc.)
+        var pseudoElementMatches = sel.match(/::[a-zA-Z-]+/g);
+        if (pseudoElementMatches) {
+            c += pseudoElementMatches.length;
+            sel = sel.replace(/::[a-zA-Z-]+/g, '');
+        }
+
+        // Count and remove pseudo-classes (:hover, :nth-child(...), :focus, etc.)
+        var pseudoClassMatches = sel.match(/:[a-zA-Z-]+(?:\([^)]*\))?/g);
+        if (pseudoClassMatches) {
+            b += pseudoClassMatches.length;
+            sel = sel.replace(/:[a-zA-Z-]+(?:\([^)]*\))?/g, '');
+        }
+
+        // Count and remove class selectors (.class)
+        var classMatches = sel.match(/\.[a-zA-Z_][\w-]*/g);
+        if (classMatches) {
+            b += classMatches.length;
+            sel = sel.replace(/\.[a-zA-Z_][\w-]*/g, '');
+        }
+
+        // Count type selectors (remaining tag names: div, p, h1, etc.)
+        // After stripping combinators (>, +, ~, space) and the universal selector (*)
+        sel = sel.replace(/[>+~*]/g, ' ');
+        var remaining = sel.trim().split(/\s+/);
+        for (var i = 0; i < remaining.length; i++) {
+            var token = remaining[i].trim();
+            if (token && /^[a-zA-Z][\w-]*$/.test(token)) {
+                c++;
+            }
+        }
+
+        return {
+            a: a,
+            b: b,
+            c: c,
+            score: a * 100 + b * 10 + c
+        };
+    }
+
+    /**
+     * Analyzes CSS specificity across all accessible stylesheets.
+     * Returns per-selector specificity data, aggregated statistics, and
+     * identifies the highest-specificity selectors.
+     *
+     * @returns {Object} Specificity analysis report section.
+     */
+    function analyzeSpecificity() {
+        var selectors = [];
+        var maxSpecificity = 0;
+        var totalScore = 0;
+        var distribution = { low: 0, medium: 0, high: 0, veryHigh: 0 };
+        var MAX_SELECTORS = 5000;
+
+        var sheetCount;
+        try {
+            sheetCount = document.styleSheets.length;
+        } catch (e) {
+            sheetCount = 0;
+        }
+
+        for (var s = 0; s < sheetCount; s++) {
+            var sheet;
+            try {
+                sheet = document.styleSheets[s];
+            } catch (e) {
+                continue;
+            }
+
+            // Skip WDR's own stylesheet
+            if (sheet.ownerNode && sheet.ownerNode.id &&
+                sheet.ownerNode.id.indexOf('wdr') === 0) {
+                continue;
+            }
+
+            var rules = null;
+            try {
+                rules = sheet.cssRules || sheet.rules;
+            } catch (e) {
+                continue; // CORS-blocked
+            }
+            if (!rules) {
+                continue;
+            }
+
+            var sheetSource = sheet.href || '(inline)';
+
+            _collectSelectorsFromRules(rules, sheetSource, selectors, MAX_SELECTORS);
+
+            if (selectors.length >= MAX_SELECTORS) {
+                break;
+            }
+        }
+
+        // Sort by specificity score descending
+        selectors.sort(function (x, y) { return y.specificity.score - x.specificity.score; });
+
+        // Compute statistics
+        for (var i = 0; i < selectors.length; i++) {
+            var score = selectors[i].specificity.score;
+            totalScore += score;
+            if (score > maxSpecificity) {
+                maxSpecificity = score;
+            }
+
+            // Distribution buckets:
+            //   low: 0-10 (type selectors only)
+            //   medium: 11-20 (one or two classes)
+            //   high: 21-99 (multiple classes/attributes)
+            //   veryHigh: 100+ (ID selectors)
+            if (score <= 10) {
+                distribution.low++;
+            } else if (score <= 20) {
+                distribution.medium++;
+            } else if (score < 100) {
+                distribution.high++;
+            } else {
+                distribution.veryHigh++;
+            }
+        }
+
+        var averageScore = selectors.length > 0
+            ? Math.round(totalScore / selectors.length)
+            : 0;
+
+        // Top 20 highest-specificity selectors
+        var top = selectors.slice(0, 20).map(function (entry) {
+            return {
+                selector: entry.selector,
+                specificity: entry.specificity,
+                source: entry.source
+            };
+        });
+
+        return {
+            totalSelectors: selectors.length,
+            maxSpecificity: maxSpecificity,
+            averageSpecificity: averageScore,
+            distribution: distribution,
+            top: top
+        };
+    }
+
+    /**
+     * Recursively collects selectors from a CSSRuleList, including
+     * rules nested inside @media blocks.
+     * @param {CSSRuleList} rules
+     * @param {string} sheetSource
+     * @param {Array} selectors - Accumulator array.
+     * @param {number} max - Cap on total selectors collected.
+     */
+    function _collectSelectorsFromRules(rules, sheetSource, selectors, max) {
+        for (var r = 0; r < rules.length; r++) {
+            if (selectors.length >= max) {
+                return;
+            }
+
+            var rule = rules[r];
+
+            if (rule.type === CSSRule.STYLE_RULE && rule.selectorText) {
+                var parts = rule.selectorText.split(',');
+                for (var p = 0; p < parts.length; p++) {
+                    if (selectors.length >= max) {
+                        return;
+                    }
+                    var trimmed = parts[p].trim();
+                    if (trimmed) {
+                        selectors.push({
+                            selector: trimmed,
+                            specificity: _calculateSpecificity(trimmed),
+                            source: sheetSource
+                        });
+                    }
+                }
+            }
+
+            // Recurse into @media, @supports, @layer blocks
+            if (rule.cssRules) {
+                try {
+                    _collectSelectorsFromRules(rule.cssRules, sheetSource, selectors, max);
+                } catch (e) {
+                    // Nested rule access failed
+                }
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 8. Unused Style Detection
+    // -----------------------------------------------------------------------
+
+    /**
+     * Detects CSS selectors that do not match any element currently in the DOM.
+     * Iterates over all accessible stylesheet rules and tests each selector
+     * against the live document. Returns a list of unused selectors.
+     *
+     * IMPORTANT: This only checks the current DOM state. Selectors for hover,
+     * focus, or dynamically-added elements may appear "unused" even though they
+     * are needed. Results should be treated as advisory.
+     *
+     * @returns {Object} Unused styles report section.
+     */
+    function analyzeUnusedStyles() {
+        var unused = [];
+        var used = 0;
+        var total = 0;
+        var errors = 0;
+        var MAX_CHECK = 5000;
+
+        var sheetCount;
+        try {
+            sheetCount = document.styleSheets.length;
+        } catch (e) {
+            sheetCount = 0;
+        }
+
+        for (var s = 0; s < sheetCount; s++) {
+            if (total >= MAX_CHECK) {
+                break;
+            }
+
+            var sheet;
+            try {
+                sheet = document.styleSheets[s];
+            } catch (e) {
+                continue;
+            }
+
+            // Skip WDR's own stylesheet
+            if (sheet.ownerNode && sheet.ownerNode.id &&
+                sheet.ownerNode.id.indexOf('wdr') === 0) {
+                continue;
+            }
+
+            var rules = null;
+            try {
+                rules = sheet.cssRules || sheet.rules;
+            } catch (e) {
+                continue; // CORS-blocked
+            }
+            if (!rules) {
+                continue;
+            }
+
+            var sheetSource = sheet.href || '(inline)';
+
+            _checkUnusedRules(rules, sheetSource, unused, MAX_CHECK, { total: total, used: used, errors: errors });
+            total = unused.length + used + errors; // Approximate count update
+        }
+
+        // Recalculate totals properly from the counters
+        total = 0;
+        used = 0;
+        errors = 0;
+
+        // Re-traverse to get accurate counts (simpler than passing mutable counters)
+        for (var s2 = 0; s2 < sheetCount; s2++) {
+            var sheet2;
+            try {
+                sheet2 = document.styleSheets[s2];
+            } catch (e) {
+                continue;
+            }
+            if (sheet2.ownerNode && sheet2.ownerNode.id &&
+                sheet2.ownerNode.id.indexOf('wdr') === 0) {
+                continue;
+            }
+            var rules2 = null;
+            try {
+                rules2 = sheet2.cssRules || sheet2.rules;
+            } catch (e) {
+                continue;
+            }
+            if (!rules2) {
+                continue;
+            }
+            var counts = _countUsedRules(rules2);
+            total += counts.total;
+            used += counts.used;
+            errors += counts.errors;
+        }
+
+        var unusedCount = unused.length;
+        var usedPercent = total > 0 ? Math.round((used / total) * 100) : 100;
+
+        return {
+            totalSelectors: total,
+            usedSelectors: used,
+            unusedSelectors: unusedCount,
+            errorSelectors: errors,
+            usedPercent: usedPercent,
+            unusedPercent: total > 0 ? 100 - usedPercent : 0,
+            unused: unused.slice(0, 100) // Cap output at 100 for readability
+        };
+    }
+
+    /**
+     * Iterates over CSSRules and collects selectors that match no DOM elements.
+     * @param {CSSRuleList} rules
+     * @param {string} sheetSource
+     * @param {Array} unused - Accumulator for unused selectors.
+     * @param {number} max - Cap on total selectors checked.
+     * @param {Object} counters - { total, used, errors } mutable counters.
+     */
+    function _checkUnusedRules(rules, sheetSource, unused, max, counters) {
+        for (var r = 0; r < rules.length; r++) {
+            if (counters.total >= max) {
+                return;
+            }
+
+            var rule = rules[r];
+
+            if (rule.type === CSSRule.STYLE_RULE && rule.selectorText) {
+                var parts = rule.selectorText.split(',');
+                for (var p = 0; p < parts.length; p++) {
+                    if (counters.total >= max) {
+                        return;
+                    }
+                    var trimmed = parts[p].trim();
+                    if (!trimmed) {
+                        continue;
+                    }
+
+                    // Skip pseudo-element and pseudo-class selectors that won't match
+                    // with querySelector (e.g. ::before, :hover, :focus, :visited)
+                    if (/::/.test(trimmed) || /:(?:hover|focus|active|visited|focus-within|focus-visible)\b/.test(trimmed)) {
+                        continue;
+                    }
+
+                    // Strip remaining pseudo-classes for DOM matching
+                    var testSelector = trimmed.replace(/:[a-zA-Z-]+(?:\([^)]*\))?/g, '');
+                    testSelector = testSelector.trim();
+                    if (!testSelector) {
+                        continue;
+                    }
+
+                    counters.total++;
+
+                    try {
+                        var match = document.querySelector(testSelector);
+                        if (match) {
+                            counters.used++;
+                        } else {
+                            unused.push({
+                                selector: trimmed,
+                                source: sheetSource
+                            });
+                        }
+                    } catch (e) {
+                        // Invalid selector (e.g. browser-prefixed selectors)
+                        counters.errors++;
+                    }
+                }
+            }
+
+            // Recurse into @media, @supports, etc.
+            if (rule.cssRules) {
+                try {
+                    _checkUnusedRules(rule.cssRules, sheetSource, unused, max, counters);
+                } catch (e) {
+                    // Nested access failed
+                }
+            }
+        }
+    }
+
+    /**
+     * Counts total, used, and error selectors in a CSSRuleList.
+     * @param {CSSRuleList} rules
+     * @returns {{ total: number, used: number, errors: number }}
+     */
+    function _countUsedRules(rules) {
+        var total = 0, used = 0, errors = 0;
+
+        for (var r = 0; r < rules.length; r++) {
+            var rule = rules[r];
+
+            if (rule.type === CSSRule.STYLE_RULE && rule.selectorText) {
+                var parts = rule.selectorText.split(',');
+                for (var p = 0; p < parts.length; p++) {
+                    var trimmed = parts[p].trim();
+                    if (!trimmed) {
+                        continue;
+                    }
+                    if (/::/.test(trimmed) || /:(?:hover|focus|active|visited|focus-within|focus-visible)\b/.test(trimmed)) {
+                        continue;
+                    }
+                    var testSelector = trimmed.replace(/:[a-zA-Z-]+(?:\([^)]*\))?/g, '').trim();
+                    if (!testSelector) {
+                        continue;
+                    }
+                    total++;
+                    try {
+                        if (document.querySelector(testSelector)) {
+                            used++;
+                        }
+                    } catch (e) {
+                        errors++;
+                    }
+                }
+            }
+
+            if (rule.cssRules) {
+                try {
+                    var sub = _countUsedRules(rule.cssRules);
+                    total += sub.total;
+                    used += sub.used;
+                    errors += sub.errors;
+                } catch (e) {
+                    // Nested access failed
+                }
+            }
+        }
+
+        return { total: total, used: used, errors: errors };
+    }
+
+    // -----------------------------------------------------------------------
+    // 9. Design Consistency Score
     // -----------------------------------------------------------------------
 
     /**
@@ -1290,6 +1757,8 @@
                 var spacingReport = analyzeSpacing(elements);
                 var accessibilityReport = analyzeAccessibility(elements);
                 var cssOverviewReport = analyzeCSSOverview();
+                var specificityReport = analyzeSpecificity();
+                var unusedStylesReport = analyzeUnusedStyles();
                 var consistencyReport = calculateConsistency(fontReport, colorReport, spacingReport);
 
                 var endTime = performance.now ? performance.now() : Date.now();
@@ -1308,6 +1777,8 @@
                     spacing: spacingReport,
                     accessibility: accessibilityReport,
                     cssOverview: cssOverviewReport,
+                    specificity: specificityReport,
+                    unusedStyles: unusedStylesReport,
                     consistency: consistencyReport
                 };
 
@@ -1414,6 +1885,8 @@
         analyzeSpacing: function () { return _waitForBody().then(function () { return analyzeSpacing(); }); },
         analyzeAccessibility: function () { return _waitForBody().then(function () { return analyzeAccessibility(); }); },
         analyzeCSSOverview: analyzeCSSOverview,
+        analyzeSpecificity: analyzeSpecificity,
+        analyzeUnusedStyles: analyzeUnusedStyles,
         calculateConsistency: function () { return _waitForBody().then(function () { return calculateConsistency(); }); },
         getLastReport: getLastReport,
         exportJSON: exportJSON,

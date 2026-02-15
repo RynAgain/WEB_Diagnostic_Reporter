@@ -23,6 +23,9 @@
 - [x] Request detail viewer panel
 - [x] Review network request capture documentation
 - [x] navigator.sendBeacon interception and recording
+- [x] More detail, responses, headers, payloads etc.
+- [x] search
+- [x] export selections
 
 ## Style and Design Analyzer
 
@@ -33,8 +36,8 @@
 - [x] Spacing consistency analysis
 - [x] Accessibility contrast ratio checking
 - [x] CSS overview analysis (stylesheet counts, rule counts, selectors, media queries)
-- [ ] CSS specificity scoring (per-selector specificity calculation)
-- [ ] Unused style detection
+- [x] CSS specificity scoring (per-selector specificity calculation)
+- [x] Unused style detection
 - [x] Design consistency scoring
 - [x] Full report export (JSON)
 
@@ -70,7 +73,7 @@
 - [x] Module export guards for unit testing
 - [x] Console logging with [ModuleName] prefix format
 - [x] Duplicate element prevention (ID checks)
-- [ ] MutationObserver cleanup on disconnect
+- [x] MutationObserver cleanup on disconnect
 - [x] Event listener cleanup functions
 
 ## Documentation
@@ -81,5 +84,45 @@
 - [x] Multi-file module guide compliance
 - [x] Update system documentation compliance
 
-## tool that can Retest/edit Network requests and View responses
-- [ ] expand this section.
+## Request Replay / Editor and Response Viewer
+
+### Response Body Capture (prerequisite — network-recorder.js changes)
+- [x] Capture response body text on loadend (responseText/response) and store on entry
+- [x] Capture fetch response body via clone().text() and store on entry
+- [x] Add configurable body capture toggle (off by default to preserve performance)
+- [x] Enforce per-response body size limit (50 KB max stored, truncate with marker)
+- [x] MIME-type-aware capture (text, json, xml, html only — skip binary/image/media)
+- [x] Add `responseBody` field to the `NetworkEntry` data model
+
+### Request Replay Engine (new: modules/request-replay.js)
+- [x] Replay function that re-fires a recorded request via fetch (method, URL, headers, body)
+- [x] Preserve original query parameters on replay
+- [x] Capture full response from replayed request (status, headers, body, timing)
+- [x] Store replay results as separate replay-history entries (not mixed into recorded entries)
+- [x] Dispatch events: `wdr:replay:start`, `wdr:replay:complete`, `wdr:replay:error`
+- [x] Diff support: compare original response status/headers/body against replay response
+
+### Request Editor
+- [x] Editable URL field with parsed query-parameter display (add/remove/modify params)
+- [x] HTTP method selector (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+- [x] Editable request headers table (add row, remove row, edit key/value)
+- [x] Editable request body textarea with content-type awareness (JSON, form, raw)
+- [x] Pre-populate editor fields from any recorded network entry ("Edit & Resend")
+- [x] "Send" action that passes the modified request to the replay engine
+
+### Response Viewer (UI panel)
+- [x] Display response status code and status text with color coding
+- [x] Display response headers in a readable table
+- [x] Display response body with JSON pretty-print and syntax coloring
+- [x] Display response body for HTML/XML/plain text with basic formatting
+- [x] Raw vs. formatted view toggle
+- [x] Copy response body to clipboard button
+- [x] Response timing and size summary line
+
+### Toolbar UI Integration (toolbar.js changes)
+- [x] "Replay" button in the network request detail expand view
+- [x] "Edit & Resend" button that opens the request editor panel/modal
+- [x] Response viewer panel (inline expand or modal) for viewing captured response bodies
+- [x] Replay history sub-section or indicator in Network tab
+- [x] Event wiring: toolbar dispatches replay/editor commands, listens for replay results
+- [x] Update version to 1.1.0

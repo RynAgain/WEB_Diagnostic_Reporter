@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WEB Diagnostic Reporter
 // @namespace    https://github.com/Rynagain/WEB_Diagnostic_Reporter
-// @version      1.0.1
+// @version      1.1.0
 // @description  A comprehensive web diagnostic tool for recording network requests, analyzing styles, and exporting detailed reports
 // @author       Rynagain
 // @match        *://*/*
@@ -23,6 +23,7 @@
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/styles.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/network-recorder.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/style-analyzer.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/request-replay.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/updater.js
 // @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/ui/toolbar.js
 // ==/UserScript==
@@ -35,7 +36,7 @@
     // and CURRENT_VERSION in modules/updater.js
     // -----------------------------------------------------------------------
 
-    var VERSION = '1.0.1';
+    var VERSION = '1.1.0';
 
     // -----------------------------------------------------------------------
     // Helper functions (inline, since utils may not be loaded yet)
@@ -114,6 +115,7 @@
         styles:          { namespace: 'Styles',          readyAttr: 'wdrStylesReady',          readyEvent: 'wdr:styles:ready',          loaded: false },
         networkRecorder: { namespace: 'NetworkRecorder', readyAttr: 'wdrNetworkRecorderReady', readyEvent: 'wdr:network:ready',         loaded: false },
         styleAnalyzer:   { namespace: 'StyleAnalyzer',   readyAttr: 'wdrStyleAnalyzerReady',   readyEvent: 'wdr:styles-analyzer:ready', loaded: false },
+        requestReplay:   { namespace: 'RequestReplay',   readyAttr: 'wdrRequestReplayReady',   readyEvent: 'wdr:replay:ready',          loaded: false },
         updater:         { namespace: 'Updater',         readyAttr: 'wdrUpdaterReady',         readyEvent: 'wdr:updater:ready',         loaded: false },
         toolbar:         { namespace: 'Toolbar',         readyAttr: 'wdrToolbarReady',         readyEvent: 'wdr:toolbar:ready',         loaded: false }
     };
