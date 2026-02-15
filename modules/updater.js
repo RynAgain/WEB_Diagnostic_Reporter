@@ -77,7 +77,7 @@
     // Configuration Constants
     // -----------------------------------------------------------------------
 
-    var CURRENT_VERSION = '1.2.0';
+    var CURRENT_VERSION = '1.3.0';
     var GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main';
     var GITHUB_VERSION_URL = GITHUB_RAW_BASE + '/WDR.user.js';
     var GITHUB_REPO_URL = 'https://github.com/Rynagain/WEB_Diagnostic_Reporter';

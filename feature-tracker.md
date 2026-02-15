@@ -233,3 +233,17 @@
 - [ ] Theme toggle (dark/light mode) in Settings tab
 - [x] Configurable max entries limit in Settings tab
 - [x] Panel position memory (left/right edge preference)
+
+---
+
+## Version Bump Checklist
+
+When incrementing the version number, update **all 4 locations**:
+
+1. **`WDR.user.js`** `@version` metadata (line 4)
+2. **`WDR.user.js`** `VERSION` constant in the IIFE body (~line 39)
+3. **`WDR.user.js`** all `@require` URL `?v=` query parameters (lines 20-33) — cache-busting for Tampermonkey
+4. **`modules/updater.js`** `CURRENT_VERSION` constant (~line 80)
+
+> **Note:** `ui/toolbar.js` reads its version from `WDR.Updater.getCurrentVersion()` at runtime,
+> but also has a local `VERSION` fallback (~line 7). Update it there too for offline consistency.

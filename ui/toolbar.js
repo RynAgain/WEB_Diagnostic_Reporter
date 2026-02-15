@@ -4,7 +4,7 @@
     'use strict';
     window.WDR = window.WDR || {};
     var Utils = window.WDR.Utils, Events = window.WDR.Events, Storage = window.WDR.Storage;
-    var MODULE = 'Toolbar', VERSION = '1.2.0';
+    var MODULE = 'Toolbar', VERSION = '1.3.0';
 
     function _log(m) { if (Utils && Utils.log) Utils.log(MODULE, m); else console.log('[WDR:Toolbar] ' + m); }
     function _warn(m) { if (Utils && Utils.warn) Utils.warn(MODULE, m); else console.warn('[WDR:Toolbar] ' + m); }

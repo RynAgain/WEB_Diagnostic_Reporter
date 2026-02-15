@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         WEB Diagnostic Reporter
 // @namespace    https://github.com/Rynagain/WEB_Diagnostic_Reporter
-// @version      1.2.0
+// @version      1.3.0
 // @description  A comprehensive web diagnostic tool for recording network requests, analyzing styles, and exporting detailed reports
 // @author       Rynagain
 // @match        *://*/*
@@ -17,20 +17,20 @@
 // @connect      github.com
 // @updateURL    https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/WDR.user.js
 // @downloadURL  https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/WDR.user.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/utils.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/events.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/storage.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/styles.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/network-recorder.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/style-analyzer.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/request-replay.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/console-logger.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/performance-metrics.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/storage-inspector.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/websocket-monitor.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/dom-inspector.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/updater.js
-// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/ui/toolbar.js
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/utils.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/events.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/storage.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/core/styles.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/network-recorder.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/style-analyzer.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/request-replay.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/console-logger.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/performance-metrics.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/storage-inspector.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/websocket-monitor.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/dom-inspector.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/modules/updater.js?v=1.3.0
+// @require      https://raw.githubusercontent.com/Rynagain/WEB_Diagnostic_Reporter/main/ui/toolbar.js?v=1.3.0
 // ==/UserScript==
 
 (function () {
@@ -41,7 +41,7 @@
     // and CURRENT_VERSION in modules/updater.js
     // -----------------------------------------------------------------------
 
-    var VERSION = '1.2.0';
+    var VERSION = '1.3.0';
 
     // -----------------------------------------------------------------------
     // Helper functions (inline, since utils may not be loaded yet)
